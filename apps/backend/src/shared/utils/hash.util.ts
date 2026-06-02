@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 export class HashUtil {
   private static readonly SALT_ROUNDS = 10;
