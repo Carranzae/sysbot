@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Montserrat:wght@100;300;400;700;900&family=Bebas+Neue&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,700;1,400&family=Pacifico&family=Oswald:wght@200;400;700&family=Inter:wght@100;400;700;900&family=Poppins:wght@100;400;700&family=Outfit:wght@100;400;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Anton&family=Cinzel:wght@400;700&family=Dancing+Script:wght@400;700&family=Great+Vibes&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 5.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 250 95% 60%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 250 95% 60%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 346.8 87.2% 47.9%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 250 95% 60%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 5.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 250 95% 60%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 250 95% 60%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 346.8 87.2% 47.9%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 250 95% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary/30 selection:text-primary;
+    background-image: 
+      radial-gradient(at 50% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(79, 70, 229, 0.03) 0px, transparent 40%);
+    background-attachment: fixed;
+  }
+}
+
+/* Custom Luxury UI utilities */
+.bg-luxury-glass {
+  background: rgba(9, 9, 11, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.text-gold-gradient {
+  background: linear-gradient(135deg, #ffffff 0%, #e4e4e7 50%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-cyan-gradient {
+  background: linear-gradient(135deg, #c7d2fe 0%, #818cf8 50%, #4f46e5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.border-luxury-glow {
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+.border-cyan-glow {
+  border-color: rgba(129, 140, 248, 0.2) !important;
+}
+
+.luxury-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.luxury-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.luxury-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+}
+.luxury-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+/* Animation Engine for Pro Editor */
+@keyframes blurIn {
+  from { filter: blur(20px); opacity: 0; transform: scale(0.9); }
+  to { filter: blur(0); opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideReveal {
+  from { clip-path: inset(0 100% 0 0); transform: translateX(-20px); }
+  to { clip-path: inset(0 0 0 0); transform: translateX(0); }
+}
+
+@keyframes glitch {
+  0% { transform: translate(0); text-shadow: none; }
+  20% { transform: translate(-2px, 2px); text-shadow: 2px 0 #ff2d55, -2px 0 #00ffcc; }
+  40% { transform: translate(2px, -2px); text-shadow: -2px 0 #ff2d55, 2px 0 #00ffcc; }
+  60% { transform: translate(-2px, -2px); text-shadow: 2px 0 #ff2d55, -2px 0 #00ffcc; }
+  80% { transform: translate(2px, 2px); text-shadow: -2px 0 #ff2d55, 2px 0 #00ffcc; }
+  100% { transform: translate(0); text-shadow: none; }
+}
+
+@keyframes floating {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes bounceIn {
+  0% { opacity: 0; transform: scale(0.3); }
+  50% { opacity: 1; transform: scale(1.05); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes neonPulse {
+  0%, 100% { text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(var(--primary),0.5); }
+  50% { text-shadow: 0 0 20px rgba(255,255,255,1), 0 0 40px rgba(var(--primary),0.8); }
+}
+
+.animate-blur-in { animation: blurIn 0.8s cubic-bezier(0.23, 1, 0.32, 1) both; }
+.animate-slide-reveal { animation: slideReveal 1s cubic-bezier(0.77, 0, 0.175, 1) both; }
+.animate-glitch { animation: glitch 0.3s cubic-bezier(.25,.46,.45,.94) both infinite; }
+.animate-floating { animation: floating 3s ease-in-out infinite; }
+.animate-bounce-in { animation: bounceIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+.animate-neon-pulse { animation: neonPulse 2s ease-in-out infinite; }

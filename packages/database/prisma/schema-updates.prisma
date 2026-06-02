@@ -1,0 +1,74 @@
+// ACTUALIZACIONES PARA SCHEMA.Prisma
+// Agregar al final del archivo schema.prisma existente
+
+enum PaymentGateway {
+  STRIPE
+  IZIPAY
+  MERCADOPAGO
+  PAYPAL
+  YAPE_PLIN
+  MANUAL
+  NONE
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+// Actualizar modelo Business (agregar estos campos)
+model Business {
+  // ... campos existentes
+  
+  // NUEVOS CAMPOS PARA PAGOS
+  paymentGateway    PaymentGateway  @default(NONE)
+  paymentConfig     Json?           // Configuración específica del gateway
+  webhookSecret     String?         // Para seguridad de webhooks
+  stripeAccountId   String?         // Para Stripe Connect
+  izipayMerchantId  String?         // Para IziPay
+}
+
+// Nuevo modelo para pagos automatizados
+model AutomatedPayment {
+  id            String            @id @default(uuid())
+  businessId    String
+  customerId    String
+  customerEmail String?
+  customerPhone String?
+  customerName  String?
+  amount        Decimal
+  currency      String            @default("PEN")
+  gateway       PaymentGateway
+  gatewayPaymentId String?         // ID del pago en el gateway externo
+  status        PaymentStatus      @default(PENDING)
+  paymentUrl    String?           // URL para completar pago
+  qrCode        String?           // QR code para Yape/Plin
+  metadata      Json?             // Información adicional
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  expiresAt     DateTime?         // Expiración del pago
+  
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  @@index([businessId, status])
+  @@index([gatewayPaymentId])
+  @@map("automated_payments")
+}
+
+// Nuevo modelo para webhooks de pagos
+model PaymentWebhook {
+  id          String            @id @default(uuid())
+  gateway     PaymentGateway
+  payload     Json              // Payload completo del webhook
+  signature   String?           // Firma para verificación
+  processed   Boolean           @default(false)
+  processedAt DateTime?
+  createdAt   DateTime          @default(now())
+  
+  @@index([gateway, processed])
+  @@map("payment_webhooks")
+}

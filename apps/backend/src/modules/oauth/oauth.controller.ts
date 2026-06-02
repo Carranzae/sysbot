@@ -1,0 +1,63 @@
+import { BadRequestException, Body, Controller, Get, Post, Query, Res, Param } from '@nestjs/common';
+import { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
+import { MetaOauthService } from './meta-oauth.service';
+
+@Controller('oauth')
+export class OauthController {
+  constructor(
+    private readonly metaOauth: MetaOauthService,
+    private readonly config: ConfigService,
+  ) {}
+
+  @Get(':platform/start')
+  start(
+    @Param('platform') platform: 'facebook' | 'instagram',
+    @Query('businessId') businessId: string,
+    @Res() res: Response,
+  ) {
+    if (!businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+    const url = this.metaOauth.buildMetaAuthUrl(businessId, platform);
+    return res.redirect(url);
+  }
+
+  @Get('meta/callback')
+  async callback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    const result = await this.metaOauth.handleCallback(code, state);
+
+    const frontendBase = this.config.get<string>('FRONTEND_PUBLIC_URL') || 'http://localhost:3000';
+    const redirect = (result as any)?.needsSelection
+      ? `${frontendBase}/redes?metaSelect=1&sessionId=${encodeURIComponent((result as any).sessionId)}&businessId=${encodeURIComponent(result.businessId)}`
+      : `${frontendBase}/redes?connected=${encodeURIComponent(result.platform)}&businessId=${encodeURIComponent(result.businessId)}`;
+    return res.redirect(redirect);
+  }
+
+  @Get('meta/pages')
+  async listMetaPages(@Query('sessionId') sessionId: string) {
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+    return this.metaOauth.listPages(sessionId);
+  }
+
+  @Post('meta/select-page')
+  async selectMetaPage(@Body() body: { sessionId?: string; pageId?: string }) {
+    const sessionId = body?.sessionId;
+    const pageId = body?.pageId;
+    if (!sessionId || !pageId) {
+      throw new BadRequestException('sessionId and pageId are required');
+    }
+    return this.metaOauth.selectPage(sessionId, pageId);
+  }
+
+  @Get('meta/health')
+  async health(@Query('businessId') businessId: string) {
+    return this.metaOauth.getHealth(businessId);
+  }
+}

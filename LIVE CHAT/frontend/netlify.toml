@@ -1,0 +1,10 @@
+[build]
+  base = "LIVE CHAT/frontend"
+  command = "npm run build"
+  publish = "dist"
+
+# Redirección para SPA (Single Page Application)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

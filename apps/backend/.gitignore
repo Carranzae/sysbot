@@ -1,0 +1,113 @@
+# 🚀 Bot SAS - Git Ignore File
+
+# 📦 Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# 📂 Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# 🗄️ Environment files (except examples)
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production.example
+
+# 📝 Logs
+logs/
+*.log
+log/
+
+# 📤 Uploads (user content)
+uploads/
+temp/
+tmp/
+
+# 🧪 Test coverage
+coverage/
+.nyc_output/
+
+# 🔧 IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 🐳 Docker volumes
+data/
+postgres_data/
+redis_data/
+pgadmin_data/
+
+# 🤖 WhatsApp session data
+.wwebjs_auth/
+.wwebjs_cache/
+whatsapp-session/
+
+# 🏗️ Turbo build cache
+.turbo/
+
+# 📊 Prisma
+prisma/*.db
+prisma/migrations/*_init/
+
+# 🔐 Certificates & Keys
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.priv
+
+# 📱 Mobile builds
+android/
+ios/
+*.apk
+*.ipa
+
+# 🎨 Frontend build
+.next/
+out/
+.nuxt/
+.vuepress/dist
+
+# 🔍 Cache
+.cache/
+.eslintcache
+.parcel-cache
+
+# 🧪 Testing
+junit.xml
+test-results/
+
+# 📦 Package manager
+package-lock.json
+yarn.lock
+!pnpm-lock.yaml
+
+# 🌐 Local Netlify folder
+.netlify/
+
+# 📊 Vercel
+.vercel/
+
+# 🗄️ Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# 🔧 Misc
+.env.backup
+.env.temp
+*.orig
+*.rej

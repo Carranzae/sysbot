@@ -1,0 +1,33 @@
+// Añadir al final del schema.prisma existente
+
+model Subscription {
+  id          String                @id @default(uuid())
+  businessId  String
+  planType    SubscriptionPlanType
+  status      SubscriptionStatus    @default(ACTIVE)
+  expiresAt   DateTime?
+  features    String[]
+  limits      Json                   // { businesses: Int, messages: Int, aiTokens: Int, calls: Int, callMinutes: Int }
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  
+  business    Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  @@index([businessId, status])
+  @@map("subscriptions")
+}
+
+enum SubscriptionPlanType {
+  BASIC
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+  ULTIMATE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+}

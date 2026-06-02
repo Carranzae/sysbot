@@ -1,0 +1,1552 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+model BotRule {
+  id            String            @id @default(uuid())
+  businessId    String
+  name          String
+  description   String?
+  triggerType   BotRuleTriggerType @default(KEYWORDS)
+  triggerValue  String?
+  keywords      String[]          @default([])
+  responseText  String?
+  responseMedia Json?
+  mediaIds      String[]          @default([])
+  channels      String[]          @default([])
+  scope         BotRuleScope      @default(CHANNEL)
+  engine        BotRuleEngine     @default(MANUAL)
+  priority      Int               @default(100)
+  active        Boolean           @default(true)
+  metadata      Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, active, priority])
+  @@map("bot_rules")
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TelegramIntegrationMode {
+  BOT
+  PERSONAL
+}
+
+enum TelegramAuthStatus {
+  NOT_CONFIGURED
+  CODE_REQUIRED
+  PENDING_CODE
+  CONNECTED
+  ERROR
+}
+
+enum CRMChannelType {
+  WHATSAPP_API
+  WHATSAPP_WEB
+  TELEGRAM_BOT
+  TELEGRAM_PERSONAL
+  MESSENGER
+  INSTAGRAM
+}
+
+enum BotRuleTriggerType {
+  EXACT
+  KEYWORDS
+  REGEX
+}
+
+enum BotRuleScope {
+  CHANNEL
+  ALL
+}
+
+enum BotRuleEngine {
+  MANUAL
+  RAG
+}
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  password        String
+  firstName       String
+  lastName        String
+  phone           String?
+  avatarUrl       String?
+  role            UserRole   @default(BUSINESS_OWNER)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  isActive        Boolean    @default(true)
+  lastLogin       DateTime?
+  permissions     String[]   @default([])
+  performedAudits AuditLog[]
+  businesses      Business[]
+
+  @@map("users")
+}
+
+model Business {
+  id                     String                  @id @default(uuid())
+  name                   String
+  description            String?
+  industryType           IndustryType           @default(OTHER)
+  categories             String[]                @default([])
+  phone                  String?
+  email                  String?
+  address                String?
+  website                String?
+  logo                   String?
+  ownerId                String
+  isActive               Boolean                @default(true)
+  allowedFeatures        String[]                @default([])
+  allowedSocials         String[]                @default([])
+  canSetDestination      Boolean                @default(false)
+  webhookSecret          String?           // Para seguridad de webhooks
+  stripeAccountId        String?           // Para Stripe Connect
+  izipayMerchantId       String?           // Para IziPay
+  paymentWebhookUrl      String?
+  planExpiresAt          DateTime?
+  pushNotifications      Boolean?                @default(true)
+  shareData              Boolean?                @default(false)
+  smsNotifications       Boolean?                @default(false)
+  storageUsed            Int                     @default(0)
+  supportEmail           String?
+  supportPhone           String?
+  timezone               String?                 @default("America/Santiago")
+  totalApiCost           Decimal                 @default(0)
+  totalMessagesSent      Int                     @default(0)
+  totalTokensUsed        Int                     @default(0)
+  whatsappNumber         String?
+  apiUsage               ApiUsage[]
+  appointments           Appointment[]
+  botConfig              BotConfig?
+  budget                 BusinessBudget?
+  owner                  User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  campaigns              Campaign[]
+  contacts               Contact[]
+  crmConnection          CRMConnection?
+  CRMLabelMapping        CRMLabelMapping[]
+  CRMSyncLog             CRMSyncLog[]
+  customerPlatforms      CustomerPlatform[]
+  evidences              Evidence[]
+  files                  File[]
+  invoices               Invoice[]
+  knowledgeChunks        KnowledgeChunk[]
+  leads                  Lead[]
+  messages               Message[]
+  metaPlatformConnection MetaPlatformConnection?
+  metaOauthSessions      MetaOauthSession[]
+  notifications          Notification[]
+  orders                 Order[]
+  paymentReceipts        PaymentReceipt[]
+  telegramConnection     TelegramConnection?
+  whatsappAccounts       WhatsAppAccount[]
+  crmChannelMappings     CRMChannelMapping[]
+  botRules               BotRule[]
+  automatedPayments      AutomatedPayment[]
+  apiKeys                ApiKey[]
+  webhookConfigs         WebhookConfig[]
+  paymentWebhooks        PaymentWebhook[]
+  subscriptions          Subscription[]
+  socialPosts            SocialPost[]
+  businessSubscriptions  BusinessSubscription[]
+  conversations          Conversation[]
+  automationSequences    AutomationSequence[]
+  emailNotifications     Boolean?                @default(true)
+  language               String?                 @default("es")
+  paymentGateway         PaymentGateway          @default(NONE)
+  updatedAt              DateTime                @updatedAt
+  createdAt              DateTime                @default(now())
+  currency               String?                 @default("PEN")
+  crmProvider            CRMProvider            @default(NONE)
+  allowAnalytics         Boolean?                @default(true)
+  budgetAlertThreshold   Decimal?                @db.Decimal(10, 2)
+  dataRetentionDays      Int?                    @default(90)
+  whatsappContacts       WhatsAppContact[]
+  whatsappGroups         WhatsAppGroup[]
+  voiceCloningConfig     VoiceCloningConfig?
+  callLogs               CallLog[]
+  dailyLearningLogs      DailyLearningLog[]
+  securityBlocklists     SecurityBlocklist[]
+
+  @@map("businesses")
+}
+
+model BotConfig {
+  id                      String                  @id @default(uuid())
+  existe                  Boolean                 @default(true)
+  welcomeMessage          String                  @default("¡Hola! ¿En qué puedo ayudarte?")
+  fallbackMessage         String                  @default("Un asesor te atenderá pronto.")
+  businessHours           Json?
+  autoReply               Boolean                 @default(true)
+  customPrompt            String?
+  temperature             Float                   @default(0.7)
+  maxTokens               Int                     @default(500)
+  whatsappMode            WhatsAppIntegrationType @default(WHATSAPP_API)
+  whatsappApiEnabled      Boolean                 @default(false)
+  whatsappWebEnabled      Boolean                 @default(false)
+  whatsappApiKey          String?
+  whatsappBusinessId      String?
+  whatsappPhoneNumberId   String?
+  whatsappWebhookSecret   String?
+  whatsappWebNumber       String?
+  whatsappWebInstructions String?
+  whatsappWebQr           String?
+  whatsappWebStatus       String?
+  whatsappWebSession      String?
+  respondInGroups         Boolean                 @default(false)
+  reviewerDestination     String?
+  telegramMode            TelegramIntegrationMode @default(BOT)
+  telegramEnabled         Boolean                 @default(false)
+  telegramBotToken        String?
+  telegramBotUsername     String?
+  telegramBotId           String?
+  telegramWebhookSecret   String?
+  telegramWebhookUrl      String?
+  telegramConnected       Boolean                 @default(false)
+  telegramLastSyncAt      DateTime?
+  telegramApiId           String?
+  telegramApiHash         String?
+  telegramPhone           String?
+  telegramSessionData     String?
+  telegramPendingCode     String?
+  telegramAuthStatus      TelegramAuthStatus      @default(NOT_CONFIGURED)
+  telegramLastError       String?
+  telegramTwoFactorEnabled Boolean                @default(false)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  businessId              String                  @unique
+  aiApiKey                String?
+  aiBaseUrl               String?
+  aiFallbackProvider      String?
+  aiModel                 String?                 @default("gpt-4o-mini")
+  aiProvider              String?                 @default("OPENAI")
+  emailDailyQuota         Int                     @default(200)
+  emailDailyQuotaUsed     Int                     @default(0)
+  emailQuotaResetAt       DateTime?
+  emailSenderAddress      String?
+  emailSenderName         String?
+  smtpHost                String?
+  smtpPassword            String?
+  smtpPort                Int?                    @default(587)
+  smtpUser                String?
+  gmailAccessToken        String?
+  gmailClientId           String?
+  gmailClientSecret       String?
+  gmailRefreshToken       String?
+  gmailTokenExpiry        DateTime?
+  audioEnabled            Boolean                 @default(false)
+  callEnabled             Boolean                 @default(false)
+  businessAddress         String?
+  businessLogoFileId      String?
+  businessRUC             String?
+  invoicePrefix           String?                 @default("B001-")
+  lastInvoiceNumber       Int                     @default(0)
+  paymentEmail            String?
+  paymentEmailPassword    String?
+  paymentEmailProvider    String?
+  aiTokensUsed            Int                     @default(0)
+  upsellingEnabled        Boolean                 @default(false)
+  sentimentAnalysisEnabled Boolean                @default(false)
+  ragChannelTargets       String[]                @default([])
+  // Social Media Configuration
+  socialFrequency         String?                 @default("3_week")
+  socialTimezone          String?                 @default("America/Bogota")
+  socialAllowedStart      String?                 @default("08:00")
+  socialAllowedEnd        String?                 @default("22:00")
+  socialMinSpacing        Int                     @default(20)
+  socialStagger           Boolean                 @default(true)
+  socialNotifyEmail       Boolean                 @default(true)
+  socialNotifyWhatsapp    Boolean                 @default(true)
+  socialNotifyPush        Boolean                 @default(true)
+  business                Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("bot_configs")
+}
+
+model WhatsAppAccount {
+  id               String    @id @default(uuid())
+  phoneNumberId    String    @unique
+  phoneNumber      String
+  displayName      String?
+  verifyToken      String
+  accessToken      String
+  webhookUrl       String?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  businessId       String
+  autoSyncEnabled  Boolean   @default(false)
+  lastAutoSyncAt   DateTime?
+  lastManualSyncAt DateTime?
+  contacts         Contact[]
+  messages         Message[]
+  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  crmChannelMappings CRMChannelMapping[]
+
+  @@map("whatsapp_accounts")
+}
+
+model File {
+  id              String           @id @default(uuid())
+  filename        String
+  originalName    String
+  mimeType        String
+  size            Int
+  url             String
+  isProcessed     Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  businessId      String
+  description     String?
+  fileType        FileType         @default(OTHER)
+  isActive        Boolean          @default(true)
+  tags            String[]         @default([])
+  version         Int              @default(1)
+  evidences       Evidence[]
+  fileVersions    FileVersion[]
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoices        Invoice[]
+  knowledgeChunks KnowledgeChunk[]
+  paymentReceipts PaymentReceipt[]
+
+  @@map("files")
+}
+
+model FileVersion {
+  id           String   @id @default(uuid())
+  version      Int
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  description  String?
+  createdAt    DateTime @default(now())
+  fileId       String
+  file         File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("file_versions")
+}
+
+model KnowledgeChunk {
+  id         String   @id @default(uuid())
+  content    String
+  embedding  Json?
+  metadata   Json?
+  vectorId   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  businessId String
+  fileId     String?
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  file       File?    @relation(fields: [fileId], references: [id])
+
+  @@map("knowledge_chunks")
+}
+
+model Message {
+  id                String           @id @default(uuid())
+  externalId        String?          @unique
+  direction         MessageDirection
+  content           String
+  status            MessageStatus    @default(PENDING)
+  from              String
+  to                String
+  mediaUrl          String?
+  metadata          Json?
+  aiResponse        Boolean          @default(false)
+  aiConfidence      Float?
+  processingTime    Int?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  businessId        String
+  whatsappAccountId String?
+  platform          String?
+  platformMessageId String?
+  platformSenderId  String?
+  business          Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  whatsappAccount   WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id])
+
+  @@index([businessId, createdAt])
+  @@index([businessId, platform])
+  @@index([businessId, from])
+  @@index([businessId, to])
+  @@map("messages")
+}
+
+model Contact {
+  id                 String              @id @default(uuid())
+  name               String?
+  phone              String
+  email              String?
+  source             ContactSource       @default(WHATSAPP)
+  autoCreated        Boolean             @default(false)
+  metadata           Json?
+  lastIncomingAt     DateTime?
+  lastOutgoingAt     DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  businessId         String
+  whatsappAccountId  String?
+  campaignRecipients CampaignRecipient[]
+  tags               ContactTag[]
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  whatsappAccount    WhatsAppAccount?    @relation(fields: [whatsappAccountId], references: [id])
+  customerPlatforms  CustomerPlatform[]
+  sequenceStates     ContactSequenceState[]
+  callLogs           CallLog[]
+
+  @@index([businessId, phone])
+  @@map("contacts")
+}
+
+model ContactTag {
+  id        String  @id @default(uuid())
+  label     String
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([label])
+  @@map("contact_tags")
+}
+
+model Campaign {
+  id          String              @id @default(uuid())
+  name        String
+  message     String
+  channel     String
+  status      CampaignStatus      @default(DRAFT)
+  scheduledAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  businessId  String
+  subject     String?
+  recipients  CampaignRecipient[]
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id           String        @id @default(uuid())
+  status       MessageStatus @default(PENDING)
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  errorMessage String?
+  campaignId   String
+  contactId    String
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+  @@map("campaign_recipients")
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+  customerName    String
+  customerPhone   String
+  customerEmail   String?
+  appointmentDate DateTime
+  duration        Int               @default(60)
+  status          AppointmentStatus @default(PENDING)
+  notes           String?
+  reminderSent    Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  businessId      String
+  price           Decimal?          @db.Decimal(10, 2)
+  specialist      String?
+  specialty       String?
+  origin          AppointmentOrigin @default(BOT)
+  business        Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoices        Invoice[]
+  paymentReceipts PaymentReceipt[]
+
+  @@index([businessId, appointmentDate])
+  @@index([businessId, specialty])
+  @@index([businessId, specialist])
+  @@map("appointments")
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  orderNumber   String      @unique
+  customerName  String
+  customerPhone String
+  customerEmail String?
+  items         Json
+  totalAmount   Float
+  status        OrderStatus @default(PENDING)
+  notes         String?
+  deliveryDate  DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  businessId    String
+  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@map("orders")
+}
+
+model Lead {
+  id            String     @id @default(uuid())
+  name          String
+  phone         String
+  email         String?
+  source        String?
+  status        LeadStatus @default(NEW)
+  notes         String?
+  metadata      Json?
+  lastContactAt DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  businessId    String
+  business      Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@map("leads")
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  type        NotificationType
+  recipient   String
+  subject     String?
+  message     String
+  isSent      Boolean          @default(false)
+  sentAt      DateTime?
+  scheduledAt DateTime?
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  businessId  String
+  business    Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, isSent, scheduledAt])
+  @@map("notifications")
+}
+
+model Evidence {
+  id                  String         @id @default(uuid())
+  customerPhone       String
+  customerName        String?
+  evidenceType        EvidenceType
+  description         String?
+  status              EvidenceStatus @default(PENDING)
+  reviewerDestination String?
+  reviewedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  businessId          String
+  fileId              String
+  business            Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  file                File           @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@map("evidences")
+}
+
+model PaymentReceipt {
+  id             String               @id @default(uuid())
+  customerPhone  String
+  customerName   String?
+  amount         Decimal              @db.Decimal(10, 2)
+  expectedAmount Decimal?             @db.Decimal(10, 2)
+  securityCode   String?
+  paymentMethod  PaymentMethod?
+  status         PaymentReceiptStatus @default(PENDING)
+  verifiedAt     DateTime?
+  verifiedBy     String?
+  emailVerified  Boolean              @default(false)
+  ocrData        Json?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  businessId     String
+  appointmentId  String?
+  receiptFileId  String
+  invoices       Invoice[]
+  appointment    Appointment?         @relation(fields: [appointmentId], references: [id])
+  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  receiptFile    File                 @relation(fields: [receiptFileId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([customerPhone])
+  @@map("payment_receipts")
+}
+
+model Invoice {
+  id               String         @id @default(uuid())
+  customerPhone    String
+  customerName     String?
+  invoiceNumber    String         @unique
+  amount           Decimal        @db.Decimal(10, 2)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  businessId       String
+  appointmentId    String?
+  paymentReceiptId String
+  invoiceFileId    String
+  appointment      Appointment?   @relation(fields: [appointmentId], references: [id])
+  business         Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoiceFile      File           @relation(fields: [invoiceFileId], references: [id], onDelete: Cascade)
+  paymentReceipt   PaymentReceipt @relation(fields: [paymentReceiptId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([invoiceNumber])
+  @@map("invoices")
+}
+
+model MetaPlatformConnection {
+  id                   String   @id @default(uuid())
+  businessId           String   @unique
+  messengerEnabled     Boolean  @default(false)
+  messengerPageId      String?
+  messengerAccessToken String?
+  messengerVerifyToken String?
+  instagramEnabled     Boolean  @default(false)
+  instagramAccountId   String?
+  instagramAccessToken String?
+  messengerConnected   Boolean  @default(false)
+  instagramConnected   Boolean  @default(false)
+  webhookUrl           String?
+  webhookVerified      Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  business             Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("meta_platform_connections")
+}
+
+model MetaOauthSession {
+  id              String   @id @default(uuid())
+  businessId       String
+  platform         String
+  userAccessToken  String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([expiresAt])
+  @@map("meta_oauth_sessions")
+}
+
+model TelegramConnection {
+  id            String    @id @default(uuid())
+  businessId    String    @unique
+  botToken      String?
+  botUsername   String?
+  botId         String?
+  webhookUrl    String?
+  webhookSecret String?
+  connected     Boolean   @default(false)
+  status        String?
+  lastError     String?
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_connections")
+}
+
+model SocialPost {
+  id          String             @id @default(uuid())
+  businessId  String
+  caption     String
+  mediaUrl    String?
+  mediaType   String             @default("video") // video, image, other
+  scheduledAt DateTime?
+  status      String             @default("DRAFT") // DRAFT, SCHEDULED, PROCESSING, COMPLETED, FAILED
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  targets     SocialPostTarget[]
+
+  @@index([businessId])
+  @@index([scheduledAt])
+  @@map("social_posts")
+}
+
+model SocialPostTarget {
+  id           String    @id @default(uuid())
+  postId       String
+  platform     String    // tiktok, instagram, facebook, youtube, linkedin
+  status       String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, NEEDS_ACTION
+  externalId   String?   // ID in the social platform
+  errorMessage String?
+  publishedAt  DateTime?
+  post         SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("social_post_targets")
+}
+
+model CRMConnection {
+  id            String            @id @default(uuid())
+  businessId    String            @unique
+  provider      CRMProvider       @default(NONE)
+  isActive      Boolean           @default(false)
+  isConnected   Boolean           @default(false)
+  accessToken   String?
+  refreshToken  String?
+  apiKey        String?
+  apiSecret     String?
+  baseUrl       String?
+  config        Json?
+  syncEnabled   Boolean           @default(true)
+  syncDirection String            @default("BIDIRECTIONAL")
+  lastSyncAt    DateTime?
+  syncInterval  Int               @default(5)
+  accountId     String?
+  accountName   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  labelMappings CRMLabelMapping[]
+  syncLogs      CRMSyncLog[]
+  channelMappings CRMChannelMapping[]
+
+  @@map("crm_connections")
+}
+
+model CRMLabelMapping {
+  id              String        @id @default(uuid())
+  businessId      String
+  crmConnectionId String
+  systemLabel     String
+  crmLabel        String
+  crmLabelId      String?
+  autoSync        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  business        Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  crmConnection   CRMConnection @relation(fields: [crmConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, crmConnectionId, systemLabel])
+  @@map("crm_label_mappings")
+}
+
+model CRMChannelMapping {
+  id               String         @id @default(uuid())
+  businessId       String
+  crmConnectionId  String
+  channelType      CRMChannelType
+  channelKey       String
+  whatsappAccountId String?
+  enabled          Boolean        @default(true)
+  syncDirection    String         @default("BIDIRECTIONAL")
+  metadata         Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  business         Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  crmConnection    CRMConnection  @relation(fields: [crmConnectionId], references: [id], onDelete: Cascade)
+  whatsappAccount  WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id])
+
+  @@unique([crmConnectionId, channelKey])
+  @@map("crm_channel_mappings")
+}
+
+model CRMSyncLog {
+  id              String        @id @default(uuid())
+  businessId      String
+  crmConnectionId String
+  syncType        String
+  direction       String
+  status          String
+  entityType      String
+  entityId        String
+  crmEntityId     String?
+  errorMessage    String?
+  syncedData      Json?
+  createdAt       DateTime      @default(now())
+  business        Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  crmConnection   CRMConnection @relation(fields: [crmConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, crmConnectionId])
+  @@index([businessId, syncType])
+  @@map("crm_sync_logs")
+}
+
+model CustomerPlatform {
+  id                 String    @id @default(uuid())
+  businessId         String
+  phone              String?
+  messengerId        String?
+  instagramId        String?
+  whatsappId         String?
+  unifiedName        String?
+  unifiedEmail       String?
+  unifiedPhone       String?
+  contactId          String?
+  preferredPlatform  String?
+  lastActivePlatform String?
+  lastActiveAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact            Contact?  @relation(fields: [contactId], references: [id])
+
+  @@unique([businessId, phone])
+  @@unique([businessId, messengerId])
+  @@unique([businessId, instagramId])
+  @@index([businessId, unifiedPhone])
+  @@map("customer_platforms")
+}
+
+model SystemConfig {
+  id          String      @id @default(uuid())
+  key         String
+  value       String
+  description String?
+  isEncrypted Boolean     @default(false)
+  scope       ConfigScope @default(GLOBAL)
+  entityId    String?
+  updatedBy   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([key, scope, entityId])
+  @@index([key, scope])
+  @@index([entityId])
+  @@map("system_configs")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  targetId    String
+  targetType  String
+  details     Json?
+  performedBy String
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  performer   User     @relation(fields: [performedBy], references: [id])
+
+  @@index([performedBy])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model AdminNotification {
+  id         String    @id @default(uuid())
+  subject    String
+  message    String
+  type       String
+  targetRole UserRole?
+  isRead     Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  mediaUrl   String?
+  mediaType  String?
+
+  @@map("admin_notifications")
+}
+
+model ApiUsage {
+  id         String   @id @default(uuid())
+  businessId String
+  provider   String
+  model      String?
+  endpoint   String?
+  tokensUsed Int
+  cost       Decimal  @default(0)
+  timestamp  DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([provider])
+  @@index([timestamp])
+  @@map("api_usage")
+}
+
+model SystemAlert {
+  id         String    @id @default(uuid())
+  type       String
+  severity   String
+  message    String
+  data       Json?
+  resolved   Boolean   @default(false)
+  resolvedAt DateTime?
+  resolvedBy String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([type])
+  @@index([severity])
+  @@index([resolved])
+  @@map("system_alerts")
+}
+
+model ApiMetric {
+  id           String   @id @default(uuid())
+  endpoint     String
+  method       String
+  responseTime Int
+  statusCode   Int
+  userId       String?
+  businessId   String?
+  userAgent    String?
+  ipAddress    String?
+  errorMessage String?
+  timestamp    DateTime @default(now())
+
+  @@index([endpoint])
+  @@index([statusCode])
+  @@index([timestamp])
+  @@index([businessId])
+  @@map("api_metrics")
+}
+
+model CircuitBreaker {
+  id              String    @id @default(uuid())
+  service         String    @unique
+  state           String
+  failureCount    Int       @default(0)
+  successCount    Int       @default(0)
+  totalRequests   Int       @default(0)
+  totalFailures   Int       @default(0)
+  lastFailureTime DateTime?
+  nextRetryTime   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([service])
+  @@index([state])
+  @@map("circuit_breakers")
+}
+
+model AlertRule {
+  id            String    @id @default(uuid())
+  name          String
+  condition     String
+  threshold     Float
+  severity      String
+  enabled       Boolean   @default(true)
+  cooldownMs    Int
+  lastTriggered DateTime?
+  channels      String[]
+  recipients    String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([enabled])
+  @@index([severity])
+  @@map("alert_rules")
+}
+
+model RateLimitRule {
+  id              String   @id @default(uuid())
+  endpoint        String
+  method          String
+  limit           Int
+  windowMs        Int
+  userRoles       String[]
+  businessPlans   String[]
+  blockDurationMs Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([endpoint])
+  @@index([method])
+  @@map("rate_limit_rules")
+}
+
+model BusinessBudget {
+  id             String   @id @default(uuid())
+  businessId     String   @unique
+  monthlyBudget  Decimal  @default(0)
+  alertThreshold Float    @default(0.8)
+  currentMonth   Int
+  currentSpend   Decimal  @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([currentMonth])
+  @@map("business_budgets")
+}
+
+enum UserRole {
+  ADMIN
+  BUSINESS_OWNER
+  STAFF
+  SUPER_ADMIN
+}
+
+enum IndustryType {
+  RESTAURANT
+  CLINIC
+  REAL_ESTATE
+  ACADEMY
+  RETAIL
+  SERVICES
+  OTHER
+}
+
+enum WhatsAppIntegrationType {
+  WHATSAPP_API
+  WHATSAPP_WEB
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum ContactSource {
+  WHATSAPP
+  MANUAL
+  OTHER
+  TELEGRAM
+  MESSENGER
+  INSTAGRAM
+  LIVECHAT
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum NotificationType {
+  APPOINTMENT_REMINDER
+  ORDER_UPDATE
+  PAYMENT_REMINDER
+  PAYMENT_CONFIRMED
+  GENERAL
+}
+
+enum EvidenceType {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+enum EvidenceStatus {
+  PENDING
+  REVIEWED
+  ARCHIVED
+}
+
+enum PaymentMethod {
+  YAPE
+  PLIN
+  TRANSFER
+  CASH
+  CARD
+  DIGITAL_WALLET
+  OTHER
+}
+
+enum PaymentReceiptStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  MANUAL_REVIEW
+}
+
+enum CRMProvider {
+  META_CRM
+  HUBSPOT
+  SALESFORCE
+  ZOHO
+  PIPEDRIVE
+  MONDAY
+  GOOGLE_SHEETS
+  CUSTOM
+  NONE
+}
+
+enum PaymentGateway {
+  STRIPE
+  IZIPAY
+  MERCADOPAGO
+  PAYPAL
+  YAPE_PLIN
+  MANUAL
+  NONE
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum FileType {
+  DOCUMENT
+  IMAGE
+  VIDEO
+  AUDIO
+  OTHER
+}
+
+enum AppointmentOrigin {
+  BOT
+  MANUAL
+  ADMIN
+}
+
+enum ConfigScope {
+  GLOBAL
+  BUSINESS
+  USER
+}
+
+// Nuevo modelo para pagos automatizados
+model AutomatedPayment {
+  id            String            @id @default(uuid())
+  businessId    String
+  customerId    String?
+  customerEmail String?
+  customerPhone String?
+  customerName  String?
+  amount        Decimal
+  currency      String            @default("PEN")
+  gateway       PaymentGateway
+  gatewayPaymentId String?         // ID del pago en el gateway externo
+  status        PaymentStatus      @default(PENDING)
+  paymentUrl    String?           // URL para completar pago
+  qrCode        String?           // QR code para Yape/Plin
+  metadata      Json?             // Información adicional
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  expiresAt     DateTime?         // Expiración del pago
+  
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  @@index([businessId, status])
+  @@index([gatewayPaymentId])
+  @@map("automated_payments")
+}
+
+// Nuevo modelo para webhooks de pagos
+model PaymentWebhook {
+  id          String            @id @default(uuid())
+  businessId  String?
+  gateway     PaymentGateway
+  payload     Json              // Payload completo del webhook
+  signature   String?           // Firma para verificación
+  processed   Boolean           @default(false)
+  processedAt DateTime?
+  createdAt   DateTime          @default(now())
+  
+  business    Business?         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  @@index([gateway, processed])
+  @@map("payment_webhooks")
+}
+
+// Modelo de suscripciones para planes empresariales
+model Subscription {
+  id          String                @id @default(uuid())
+  businessId  String
+  planType    SubscriptionPlanType
+  status      SubscriptionStatus    @default(ACTIVE)
+  expiresAt   DateTime?
+  features    String[]
+  limits      Json                   // { businesses: Int, messages: Int, aiTokens: Int, calls: Int, callMinutes: Int }
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  
+  business    Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  @@index([businessId, status])
+  @@map("subscriptions")
+}
+
+enum SubscriptionPlanType {
+  BASIC
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+  ULTIMATE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+}
+
+// ============================================
+// SISTEMA DE PLANES Y SUSCRIPCIONES (5 NIVELES)
+// ============================================
+
+enum BusinessPlanType {
+  FREE
+  STARTER
+  PROFESSIONAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum BusinessSubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PENDING
+  TRIAL
+}
+
+// Suscripción de negocio a un plan específico
+model BusinessSubscription {
+  id                String                    @id @default(uuid())
+  businessId        String
+  planId            String
+  planType          BusinessPlanType          @default(FREE)
+  interval          PlanInterval              @default(MONTHLY)
+  status            BusinessSubscriptionStatus @default(ACTIVE)
+  
+  // Fechas
+  startDate         DateTime                  @default(now())
+  endDate           DateTime
+  trialEndsAt       DateTime?
+  
+  // Período actual
+  currentPeriodStart DateTime                 @default(now())
+  currentPeriodEnd    DateTime
+  
+  // Cancelación
+  cancelAtPeriodEnd Boolean                   @default(false)
+  cancelledAt       DateTime?
+  
+  // Precio
+  price             Decimal                   @default(0) @db.Decimal(10, 2)
+  currency          String                    @default("USD")
+  
+  // Features habilitadas (JSON)
+  enabledFeatures   Json?
+  
+  // Relaciones
+  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  
+  @@index([businessId, status])
+  @@index([planType, status])
+  @@index([currentPeriodEnd])
+  @@map("business_subscriptions")
+}
+
+// ============================================
+// CONVERSACIONES PARA LÍMITES DE PLAN FREE
+// ============================================
+
+model Conversation {
+  id                String        @id @default(uuid())
+  businessId        String
+  customerPhone     String
+  customerName      String?
+  
+  // Contadores
+  messageCount      Int           @default(0)
+  
+  // Estado
+  status            String        @default("ACTIVE") // ACTIVE, CLOSED, ARCHIVED
+  
+  // Última actividad
+  lastMessageAt     DateTime?
+  lastMessageBy     String?       // BUSINESS o CUSTOMER
+  
+  // Relaciones
+  business          Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chatMessages      ChatMessage[]
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([businessId, createdAt])
+  @@index([businessId, status])
+  @@index([customerPhone])
+  @@map("conversations")
+}
+
+// Mensajes dentro de una conversación
+model ChatMessage {
+  id              String          @id @default(uuid())
+  conversationId  String
+  
+  // Contenido
+  content         String?
+  mediaUrl        String?
+  mediaType       String?         // image, video, audio, document
+  
+  // Dirección
+  direction       String          // INBOUND o OUTBOUND
+  sentBy          String          // BUSINESS o CUSTOMER
+  
+  // Estado
+  status          String          @default("SENT") // SENT, DELIVERED, READ, FAILED
+  
+  // Timestamps
+  sentAt          DateTime        @default(now())
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  
+  // Relación
+  conversation    Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  @@index([conversationId, sentAt])
+  @@map("chat_messages")
+}
+
+// --- ENTERPRISE INTEGRATIONS ---
+
+model ApiKey {
+  id          String   @id @default(uuid())
+  businessId  String
+  name        String
+  key         String   @unique
+  secret      String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  isActive    Boolean  @default(true)
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, key])
+  @@map("api_keys")
+}
+
+model WebhookConfig {
+  id          String   @id @default(uuid())
+  businessId  String
+  url         String
+  secret      String?
+  events      String[] // ['MESSAGE_RECEIVED', 'LEAD_GENERATED', 'ORDER_CREATED', 'APPOINTMENT_SCHEDULED']
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, isActive])
+  @@map("webhook_configs")
+}
+model AutomationSequence {
+  id          String         @id @default(uuid())
+  name        String
+  description String?
+  triggerType String         @default("MANUAL") // MANUAL, CONTACT_CREATED, TAG_ADDED
+  triggerValue String?       // Tag name or other value
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  businessId  String
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  steps       SequenceStep[]
+  contactStates ContactSequenceState[]
+
+  @@map("automation_sequences")
+}
+
+model SequenceStep {
+  id          String             @id @default(uuid())
+  sequenceId  String
+  order       Int
+  delayHours  Int                @default(0)
+  actionType  String             @default("SEND_MESSAGE") // SEND_MESSAGE, SEND_FILE, ADD_TAG
+  content     String?            // Message text
+  mediaUrl    String?
+  metadata    Json?
+  sequence    AutomationSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@map("sequence_steps")
+}
+
+model ContactSequenceState {
+  id          String             @id @default(uuid())
+  contactId   String
+  sequenceId  String
+  currentStep Int                @default(0)
+  status      String             @default("ACTIVE") // ACTIVE, COMPLETED, PAUSED
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  metadata    Json?
+  contact     Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  sequence    AutomationSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, sequenceId])
+  @@map("contact_sequence_states")
+}
+
+model WhatsAppContact {
+  id         String   @id @default(uuid())
+  businessId String
+  jid        String
+  name       String?
+  notifyName String?
+  profilePic String?
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, jid])
+  @@map("whatsapp_contacts")
+}
+
+model WhatsAppGroup {
+  id          String   @id @default(uuid())
+  businessId  String
+  jid         String
+  subject     String
+  description String?
+  participants Json?
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([businessId, jid])
+  @@map("whatsapp_groups")
+}
+
+// 🎙️ Consentimiento y Configuración de Clonación de Voz
+model VoiceCloningConfig {
+  id                String       @id @default(uuid())
+  businessId        String       @unique
+  voiceModelId      String?      // ID del modelo entrenado en ElevenLabs/PlayHT/Coqui
+  sampleAudioUrl    String?      // URL del archivo de muestra original
+  termsAccepted     Boolean      @default(false)
+  acceptedAt        DateTime?
+  ipAddress         String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  business          Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("voice_cloning_configs")
+}
+
+// 📞 Registro CRM de Llamadas y "Escucha Activa"
+model CallLog {
+  id                String       @id @default(uuid())
+  businessId        String
+  contactId         String
+  duration          Int          // Duración en segundos
+  status            CallStatus   @default(COMPLETED) // COMPLETED, MISSED, BUSY, FAILED
+  recordingUrl      String?      // URL de la grabación para Escucha Activa
+  transcription     String?      @db.Text
+  sentimentAnalysis String?      // Análisis de humor (ANGRY, NEUTRAL, HAPPY, etc.)
+  queryResolved     Boolean      @default(false) // Si el bot resolvió la duda del cliente
+  crmTaskCreated    Boolean      @default(false) // Si se asignó tarea automática
+  surveyScore       Int?         // Calificación final del bot (1 a 5)
+  surveyFeedback    String?      // Feedback cualitativo
+  createdAt         DateTime     @default(now())
+  
+  business          Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contact           Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([contactId])
+  @@map("call_logs")
+}
+
+enum CallStatus {
+  COMPLETED
+  MISSED
+  BUSY
+  FAILED
+}
+
+// 🧠 Memoria de Aprendizaje Diario ("Estudiante Virtual")
+model DailyLearningLog {
+  id                String       @id @default(uuid())
+  businessId        String
+  logDate           DateTime     @default(now())
+  analyzedTickets   Int          // Cantidad de tickets analizados
+  criticalIssues    Json         // Lista de fallas críticas detectadas en el servicio
+  optimizedRagCount Int          // Cuántos conocimientos del RAG se ajustaron/mejoraron
+  insights          String       @db.Text // Conclusiones del estudiante virtual
+  performanceScore  Decimal      @db.Decimal(5, 2) // Calificación de efectividad diaria (0-100)
+  createdAt         DateTime     @default(now())
+
+  business          Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, logDate])
+  @@map("daily_learning_logs")
+}
+
+// 🛡️ Lista de IPs y Teléfonos Bloqueados (Prevención de Fraudes e Inyecciones)
+model SecurityBlocklist {
+  id                String       @id @default(uuid())
+  businessId        String
+  targetType        BlockType    // IP, PHONE, EMAIL
+  targetValue       String       // La dirección IP o número telefónico bloqueado
+  reason            String       // Razón del bloqueo
+  severity          BlockSeverity @default(HIGH)
+  blockedAt         DateTime     @default(now())
+  expiresAt         DateTime?
+
+  business          Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, targetValue])
+  @@map("security_blocklist")
+}
+
+enum BlockType {
+  IP
+  PHONE
+  EMAIL
+}
+
+enum BlockSeverity {
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
