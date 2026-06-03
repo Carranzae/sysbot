@@ -65,9 +65,9 @@ export async function syncUsersFromSysbot(): Promise<void> {
 
     // Read users from Sysbot (copilot_expert/railway) - the table is called "users" in Prisma with camelCase columns
     const { rows: sysbotUsers } = await sysbotPool.query(`
-      SELECT id, "firstName", "lastName", email, password, role, phone 
+      SELECT id, "firstName", "lastName", email, password, role::text, phone 
       FROM "users" 
-      WHERE role IN ('SUPER_ADMIN', 'ADMIN', 'OWNER', 'PROVIDER', 'BUSINESS_OWNER')
+      WHERE role::text IN ('SUPER_ADMIN', 'ADMIN', 'OWNER', 'PROVIDER', 'BUSINESS_OWNER')
     `);
 
     if (sysbotUsers.length === 0) {
