@@ -44,9 +44,28 @@ async function bootstrap() {
     if (corsOrigins.length > 0) explicitOrigins.push(...corsOrigins);
     const finalOrigins = explicitOrigins.length > 0 ? explicitOrigins : ['http://localhost:3000'];
     
-    console.log(`🔒 CORS: Allowing origins: ${finalOrigins.join(', ')}`);
+    console.log(`🔒 CORS: Allowing origins: ${finalOrigins.join(', ')} and *.netlify.app subdomains`);
     app.enableCors({
-      origin: finalOrigins,
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        
+        const allowedSet = new Set(finalOrigins.map(o => o.trim().replace(/\/$/, '')));
+        const cleanOrigin = origin.trim().replace(/\/$/, '');
+        
+        if (
+          allowedSet.has(cleanOrigin) || 
+          cleanOrigin.endsWith('.netlify.app') || 
+          cleanOrigin.includes('localhost') || 
+          cleanOrigin.includes('127.0.0.1')
+        ) {
+          callback(null, true);
+        } else {
+          callback(new Error(`Origin ${origin} not allowed by CORS`));
+        }
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
