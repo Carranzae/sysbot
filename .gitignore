@@ -68,3 +68,8 @@ apps/backend/*.md
 !apps/backend/package.json
 !apps/backend/tsconfig.json
 !apps/backend/nest-cli.json
+
+# Allow Live Chat backend scripts
+!LIVE CHAT/backend/scripts/
+!LIVE CHAT/backend/scripts/**
+

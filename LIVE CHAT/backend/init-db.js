@@ -11,7 +11,7 @@ const poolConfig = {
   ssl: isProduction ? { rejectUnauthorized: false } : false
 };
 
-const pool = new Pool(poolConfig);
+const pool = new pg.Pool(poolConfig);
 
 async function run() {
   try {
