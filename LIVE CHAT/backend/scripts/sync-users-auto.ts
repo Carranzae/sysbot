@@ -9,11 +9,11 @@ const { Pool } = pg;
  */
 export async function syncUsersFromSysbot(): Promise<void> {
   const sysbotPool = new Pool({
-    connectionString: process.env.SYSBOT_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/copilot_expert',
+    connectionString: process.env.SYSBOT_DATABASE_URL || process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL || 'postgresql://postgres:postgres@localhost:5432/copilot_expert',
   });
 
   const livechatPool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/livechat',
+    connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL || 'postgresql://postgres:postgres@localhost:5432/livechat',
   });
 
   try {

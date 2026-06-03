@@ -3,7 +3,8 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-const { DATABASE_URL, NODE_ENV, DATABASE_SSL } = process.env
+const DATABASE_URL = process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL
+const { NODE_ENV, DATABASE_SSL } = process.env
 
 if (!DATABASE_URL) {
   console.warn('⚠️ DATABASE_URL no está configurada. Configura la conexión a PostgreSQL en tu .env')
