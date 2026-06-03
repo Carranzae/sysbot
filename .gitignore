@@ -57,6 +57,10 @@ temp/
 scripts/
 scratch/
 
+# Allow Prisma migrations
+!packages/database/prisma/migrations/**
+!packages/database/prisma/migrations/**/*.sql
+
 # Backend developer test/diagnostic scripts
 apps/backend/*.js
 !apps/backend/.eslintrc.js
