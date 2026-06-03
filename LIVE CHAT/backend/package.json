@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Backend del módulo LiveChat / WhatsApp",
   "scripts": {
-    "dev": "tsx watch api/server.ts",
-    "start": "tsx api/server.ts",
+    "dev": "node init-db.js && tsx watch api/server.ts",
+    "start": "node init-db.js && tsx api/server.ts",
     "build": "tsc"
   },
   "dependencies": {

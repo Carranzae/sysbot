@@ -1289,8 +1289,7 @@ MENSAJE DEL CLIENTE: "${messageBody}"`
       // ════════════════════════════════════════
       // FORMATO Y PERSISTENCIA
       // ════════════════════════════════════════
-      const { ResponseFormatter } = await import('../utils/responseFormatter')
-      const text = ResponseFormatter.format(cleanedText.trim())
+      const text = cleanedText.trim()
 
       if (messageBody.length > 1) {
         await db.query(
