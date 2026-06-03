@@ -49,6 +49,9 @@ RUN pnpm install --frozen-lockfile --prod
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
+# Copy Prisma schema and migrations for programmatic execution
+COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
+
 # Copy necessary config files
 COPY --from=builder /app/.env.production ./.env.production
 

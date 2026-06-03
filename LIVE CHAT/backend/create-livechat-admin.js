@@ -6,8 +6,19 @@ dotenv.config();
 
 const { Pool } = pg;
 
+// Function to dynamically rewrite the connection string to target the 'livechat' database
+function getLiveChatDatabaseUrl(originalUrl) {
+  if (!originalUrl) return originalUrl;
+  if (originalUrl.includes('/livechat')) {
+    return originalUrl;
+  }
+  return originalUrl.replace(/\/([^/?]+)(\?.*)?$/, '/livechat$2');
+}
+
+const connectionString = getLiveChatDatabaseUrl(process.env.DATABASE_URL || 'postgresql://postgres:123@localhost:5432/livechat');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:123@localhost:5432/livechat',
+  connectionString,
 });
 
 async function run() {

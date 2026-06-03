@@ -3,7 +3,16 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-const DATABASE_URL = process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL
+// Function to dynamically rewrite the connection string to target the 'livechat' database
+function getLiveChatDatabaseUrl(originalUrl: string | undefined): string | undefined {
+  if (!originalUrl) return originalUrl;
+  if (originalUrl.includes('/livechat')) {
+    return originalUrl;
+  }
+  return originalUrl.replace(/\/([^/?]+)(\?.*)?$/, '/livechat$2');
+}
+
+const DATABASE_URL = getLiveChatDatabaseUrl(process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL)
 const { NODE_ENV, DATABASE_SSL } = process.env
 
 if (!DATABASE_URL) {

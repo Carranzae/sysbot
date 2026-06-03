@@ -1,5 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@syst/database';
+import { execSync } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -15,6 +18,43 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.connectionPromise;
   }
 
+  private runMigrations() {
+    try {
+      // Find schema.prisma file in monorepo
+      const possiblePaths = [
+        path.join(process.cwd(), 'packages/database/prisma/schema.prisma'),
+        path.join(process.cwd(), '../database/prisma/schema.prisma'),
+        path.join(process.cwd(), '../../packages/database/prisma/schema.prisma'),
+        path.join(process.cwd(), 'prisma/schema.prisma'),
+      ];
+
+      let schemaPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          schemaPath = p;
+          break;
+        }
+      }
+
+      if (!schemaPath) {
+        this.logger.warn('⚠️ Could not find schema.prisma to run migrations automatically.');
+        return;
+      }
+
+      this.logger.log(`⏳ Running database migrations using schema: ${schemaPath}`);
+      
+      // Run prisma migrate deploy
+      execSync(`npx prisma migrate deploy --schema="${schemaPath}"`, {
+        stdio: 'inherit',
+        env: process.env,
+      });
+      
+      this.logger.log('✅ Database migrations applied successfully');
+    } catch (err: any) {
+      this.logger.error(`❌ Failed to run database migrations: ${err.message || err}`);
+    }
+  }
+
   private async connectWithRetry(maxRetries = 15, delay = 2000) {
     this.logger.log('🔌 Attempting to connect to database...');
     
@@ -26,6 +66,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         await this.$connect();
         this.isConnected = true;
         this.logger.log('✅ Database connected successfully');
+        
+        // Run database migrations programmatically
+        this.runMigrations();
+        
         return;
       } catch (error: any) {
         const isLastAttempt = attempt === maxRetries;
