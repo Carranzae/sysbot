@@ -522,6 +522,7 @@ export interface APIProviderConfig {
   name: string;
   service: EmbeddingService;
   priority: number; // 1 = más alta prioridad
+  weight: number;
   quotaLimit: number; // tokens por hora
   usedTokens: number; // tokens usados en la hora actual
   costPerToken: number; // costo por token
@@ -540,6 +541,14 @@ export class APIBalancerService {
     this.loadProviderMetrics();
   }
 
+  getProviders(): APIProviderConfig[] {
+    return Array.from(this.providers.values());
+  }
+
+  getHealthyProviders(): APIProviderConfig[] {
+    return Array.from(this.providers.values()).filter(p => p.isActive && p.errorCount < 5);
+  }
+
   // Registrar un proveedor de embeddings
   registerProvider(id: string, service: EmbeddingService, config: Partial<APIProviderConfig>) {
     const providerConfig: APIProviderConfig = {
@@ -547,6 +556,7 @@ export class APIBalancerService {
       name: config.name || id,
       service,
       priority: config.priority || 1,
+      weight: config.weight || (10 - (config.priority || 1)),
       quotaLimit: config.quotaLimit || 10000, // 10K tokens/hora por defecto
       usedTokens: config.usedTokens || 0,
       costPerToken: config.costPerToken || 0.0001, // $0.0001 por token por defecto

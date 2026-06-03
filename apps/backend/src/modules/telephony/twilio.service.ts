@@ -97,21 +97,27 @@ export class TwilioService {
   <Say language="es-ES">Hola, soy el asistente virtual.</Say>
 </Response>`,
       gather: (options: any) => ({
-        say: (text: string) => ({
-          toString: () => `<?xml version="1.0" encoding="UTF-8"?>
+        say: (optionsOrText: any, text?: string) => {
+          const msg = typeof optionsOrText === 'string' ? optionsOrText : text || '';
+          return {
+            toString: () => `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="${options.input}" language="${options.language}" timeout="${options.timeout}" action="${options.action}">
-    <Say language="es-ES">${text}</Say>
+    <Say language="es-ES">${msg}</Say>
   </Gather>
 </Response>`
-        })
+          };
+        }
       }),
-      say: (text: string) => ({
-        toString: () => `<?xml version="1.0" encoding="UTF-8"?>
+      say: (optionsOrText: any, text?: string) => {
+        const msg = typeof optionsOrText === 'string' ? optionsOrText : text || '';
+        return {
+          toString: () => `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="es-ES">${text}</Say>
+  <Say language="es-ES">${msg}</Say>
 </Response>`
-      }),
+        };
+      },
       hangup: () => ({
         toString: () => `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

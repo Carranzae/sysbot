@@ -58,11 +58,11 @@ export class PaymentController {
 
   @Get('invoices')
   async getInvoices(
+    @Request() req,
     @Query('businessId') businessId: string,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('status') status?: string,
-    @Request() req,
   ) {
     try {
       const userId = req.user?.sub;
@@ -95,11 +95,11 @@ export class PaymentController {
 
   @Get('receipts')
   async getReceipts(
+    @Request() req,
     @Query('businessId') businessId: string,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('status') status?: string,
-    @Request() req,
   ) {
     try {
       const userId = req.user?.sub;
@@ -364,11 +364,11 @@ export class PaymentController {
 
   @Get('export/:businessId')
   async exportPaymentData(
+    @Request() req,
     @Param('businessId') businessId: string,
     @Query('format') format: string = 'csv',
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-    @Request() req,
   ) {
     try {
       const userId = req.user?.sub;

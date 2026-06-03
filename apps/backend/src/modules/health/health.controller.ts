@@ -15,7 +15,7 @@ export class HealthController {
   @HealthCheck()
   check() {
     return this.health.check([
-      () => this.db.pingCheck('database', this.prisma),
+      () => this.db.pingCheck('database', this.prisma as any),
       () => this.memory.checkHeap('memory_heap', 150 * 1024 * 1024), // 150MB
       () => this.memory.checkRSS('memory_rss', 300 * 1024 * 1024), // 300MB
       // Add Redis check if needed, but Redis is often checked within MonitoringService

@@ -17,7 +17,7 @@ import { randomUUID } from 'crypto';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { AIProviderFactory } from './providers/ai-provider.factory';
-import { AIProvider, FileAttachment } from './providers/ai-provider.interface';
+import { AIProvider, FileAttachment, AIProviderResponse } from './providers/ai-provider.interface';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { SettingsService } from '../settings/settings.service';

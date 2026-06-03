@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { AIProvider, AIProviderConfig, FileAttachment } from './ai-provider.interface';
+import { AIProvider, AIProviderConfig, FileAttachment, AIProviderResponse } from './ai-provider.interface';
 
 @Injectable()
 export class GeminiProvider implements AIProvider {

@@ -32,20 +32,20 @@ export class SaaSCheckoutService {
         const price = calculatePlanPrice(planType, interval, business.industryType);
         
         // 3. Obtener el gateway preferido de la plataforma (Super Admin config)
-        const gatewayType = await this.settings.get('SYSTEM_SUBSCRIPTION_GATEWAY', 'IZIPAY') as PaymentGateway;
+        const gatewayType = await this.settings.getValue('SYSTEM_SUBSCRIPTION_GATEWAY', { defaultValue: 'IZIPAY' }) as PaymentGateway;
         
         // 4. Obtener las credenciales del Super Admin para ese gateway
         let config: any = {};
         if (gatewayType === PaymentGateway.IZIPAY) {
             config = {
-                merchantId: await this.settings.get('SYSTEM_IZIPAY_MERCHANT_ID'),
-                apiKey: await this.settings.get('SYSTEM_IZIPAY_API_KEY'),
-                apiSecret: await this.settings.get('SYSTEM_IZIPAY_API_SECRET'),
+                merchantId: await this.settings.getValue('SYSTEM_IZIPAY_MERCHANT_ID'),
+                apiKey: await this.settings.getValue('SYSTEM_IZIPAY_API_KEY'),
+                apiSecret: await this.settings.getValue('SYSTEM_IZIPAY_API_SECRET'),
             };
         } else if (gatewayType === PaymentGateway.STRIPE) {
             config = {
-                apiKey: await this.settings.get('SYSTEM_STRIPE_SECRET_KEY'),
-                webhookSecret: await this.settings.get('SYSTEM_STRIPE_WEBHOOK_SECRET'),
+                apiKey: await this.settings.getValue('SYSTEM_STRIPE_SECRET_KEY'),
+                webhookSecret: await this.settings.getValue('SYSTEM_STRIPE_WEBHOOK_SECRET'),
             };
         }
 

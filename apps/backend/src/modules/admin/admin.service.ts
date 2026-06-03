@@ -14,6 +14,15 @@ import { TwilioService } from '../telephony/twilio.service';
 import { PaymentFactoryService } from '../payment/payment-factory.service';
 import { SmartAutomationService } from '../automation/smart-automation.service';
 
+function formatDateLabel(date: Date | null | undefined): string {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+    });
+}
+
 @Injectable()
 export class AdminService {
     constructor(
@@ -897,11 +906,22 @@ export class AdminService {
     }
 
     async upgradeSubscription(businessId: string, planType: string) {
-        return this.subscriptionService.upgradeSubscription(businessId, planType);
+        return this.planService.createSubscription({
+            businessId,
+            planType: planType as any,
+            interval: 'MONTHLY' as any,
+            trialDays: 0
+        });
     }
 
     async cancelSubscription(businessId: string) {
-        return this.subscriptionService.cancelSubscription(businessId);
+        const activeSub = await this.prisma.businessSubscription.findFirst({
+            where: { businessId, status: 'ACTIVE' }
+        });
+        if (activeSub) {
+            return this.planService.cancelSubscription(activeSub.id);
+        }
+        return null;
     }
 
     async getSubscriptionStats() {
@@ -1418,7 +1438,7 @@ export class AdminService {
                 }
             });
         } catch (error) {
-            this.logger.error('Failed to create audit log:', error);
+            console.error('Failed to create audit log:', error);
         }
     }
 }

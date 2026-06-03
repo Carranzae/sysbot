@@ -53,10 +53,9 @@ export class ProcessReceiptDto {
   @IsNotEmpty()
   transactionId?: string;
 
-  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  receiptFileId?: string;
+  receiptFileId: string;
 
   @IsOptional()
   @IsString()

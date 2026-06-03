@@ -24,6 +24,9 @@ import {
   PlanConfig,
   BusinessSubscription,
 } from './entities/plan.entity';
+import { CreateSubscriptionDto } from './dto/create-subscription.dto';
+import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { CheckLimitDto } from './dto/check-limit.dto';
 
 @ApiTags('Planes y Suscripciones')
 @Controller('plans')

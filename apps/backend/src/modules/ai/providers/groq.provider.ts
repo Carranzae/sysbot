@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
-import { AIProvider, AIProviderConfig } from './ai-provider.interface';
+import { AIProvider, AIProviderConfig, AIProviderResponse } from './ai-provider.interface';
 
 @Injectable()
 export class GroqProvider implements AIProvider {
