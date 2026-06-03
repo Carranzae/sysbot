@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 
 // Load .env from project root (2 levels up from apps/backend/src)
+// Trigger redeployment on Railway for automatic migrations check
 config({ path: resolve(__dirname, '../../../.env') });
 
 import { NestFactory, HttpAdapterHost } from '@nestjs/core';
