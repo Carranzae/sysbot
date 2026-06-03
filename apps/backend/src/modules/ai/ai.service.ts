@@ -245,8 +245,23 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getSystemSetting(key: string): Promise<string | null> {
-    const envFallback = this.configService.get<string | null>(key) ?? null;
-    return this.settingsService.getValue(key, { defaultValue: envFallback });
+    const envValue = this.configService.get<string | null>(key) ?? null;
+    if (envValue) {
+      let val = envValue;
+      if (key === 'QDRANT_URL' && val.endsWith('/')) {
+        val = val.slice(0, -1);
+      }
+      return val;
+    }
+    const dbValue = await this.settingsService.getValue(key, { defaultValue: null });
+    if (dbValue) {
+      let val = dbValue;
+      if (key === 'QDRANT_URL' && val.endsWith('/')) {
+        val = val.slice(0, -1);
+      }
+      return val;
+    }
+    return null;
   }
 
   private async configureRagServices(): Promise<void> {

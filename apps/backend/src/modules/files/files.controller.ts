@@ -292,7 +292,10 @@ export class FilesController {
     // Verificar Qdrant si está configurado
     let qdrantStatus = 'NOT_CONFIGURED';
     let qdrantChunks = 0;
-    const qdrantUrl = process.env.QDRANT_URL;
+    let qdrantUrl = process.env.QDRANT_URL;
+    if (qdrantUrl && qdrantUrl.endsWith('/')) {
+      qdrantUrl = qdrantUrl.slice(0, -1);
+    }
     
     if (qdrantUrl) {
       try {
