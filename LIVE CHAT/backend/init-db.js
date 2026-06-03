@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const { Pool } = pg;
 const isProduction = process.env.NODE_ENV === 'production';
 const poolConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -30,3 +31,4 @@ async function run() {
 }
 
 run();
+
