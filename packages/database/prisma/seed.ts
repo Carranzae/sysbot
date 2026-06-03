@@ -37,18 +37,22 @@ async function main() {
   console.log('👤 Admin user created:', adminUser.email);
 
   // ⚙️ Create system configuration
-  const systemConfig = await prisma.systemConfig.upsert({
-    where: { key: 'app_version' },
-    update: {},
-    create: {
-      key: 'app_version',
-      value: '1.0.0',
-      scope: 'GLOBAL',
-      isPublic: true,
-    },
+  const existingConfig = await prisma.systemConfig.findFirst({
+    where: { key: 'app_version', scope: 'GLOBAL' }
   });
 
-  console.log('⚙️ System config created:', systemConfig.key);
+  if (!existingConfig) {
+    const systemConfig = await prisma.systemConfig.create({
+      data: {
+        key: 'app_version',
+        value: '1.0.0',
+        scope: 'GLOBAL',
+      },
+    });
+    console.log('⚙️ System config created:', systemConfig.key);
+  } else {
+    console.log('⚙️ System config already exists:', existingConfig.key);
+  }
 
   console.log('✅ Database seeding completed successfully!');
 }
