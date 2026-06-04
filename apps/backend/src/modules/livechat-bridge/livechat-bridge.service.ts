@@ -130,18 +130,20 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
 
   // ============== HTTP PROXY METHODS ==============
 
-  private getHeaders(token: string) {
-    return {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+  private getHeaders(token: string, businessId?: string) {
+    const headers: any = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
     };
+    if (businessId) {
+      headers['x-business-id'] = businessId;
+    }
+    return { headers };
   }
 
-  async getChats(token: string) {
+  async getChats(token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.get('/api/whatsapp/chats', this.getHeaders(token));
+      const res = await this.httpClient.get('/api/whatsapp/chats', this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error getting chats: ${error.message}`);
@@ -149,9 +151,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getChatMessages(phone: string, token: string) {
+  async getChatMessages(phone: string, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.get(`/api/whatsapp/chats/${encodeURIComponent(phone)}`, this.getHeaders(token));
+      const res = await this.httpClient.get(`/api/whatsapp/chats/${encodeURIComponent(phone)}`, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error getting chat messages: ${error.message}`);
@@ -159,11 +161,11 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async sendMessage(to: string, message: string, token: string, mediaUrl?: string) {
+  async sendMessage(to: string, message: string, token: string, mediaUrl?: string, businessId?: string) {
     try {
       const body: any = { to, message };
       if (mediaUrl) body.mediaUrl = mediaUrl;
-      const res = await this.httpClient.post('/api/whatsapp/send', body, this.getHeaders(token));
+      const res = await this.httpClient.post('/api/whatsapp/send', body, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error sending message: ${error.message}`);
@@ -171,9 +173,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getWhatsAppStatus(token: string) {
+  async getWhatsAppStatus(token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.get('/api/whatsapp/web/status', this.getHeaders(token));
+      const res = await this.httpClient.get('/api/whatsapp/web/status', this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error getting WA status: ${error.message}`);
@@ -181,9 +183,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async startWhatsApp(usePairingCode: boolean, phone: string, token: string) {
+  async startWhatsApp(usePairingCode: boolean, phone: string, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.post('/api/whatsapp/web/start', { usePairingCode, phone }, this.getHeaders(token));
+      const res = await this.httpClient.post('/api/whatsapp/web/start', { usePairingCode, phone }, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error starting WA: ${error.message}`);
@@ -191,9 +193,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async disconnectWhatsApp(token: string) {
+  async disconnectWhatsApp(token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.post('/api/whatsapp/web/disconnect', {}, this.getHeaders(token));
+      const res = await this.httpClient.post('/api/whatsapp/web/disconnect', {}, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error disconnecting WA: ${error.message}`);
@@ -201,9 +203,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getBotEnabled(token: string) {
+  async getBotEnabled(token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.get('/api/whatsapp/web/bot-enabled', this.getHeaders(token));
+      const res = await this.httpClient.get('/api/whatsapp/web/bot-enabled', this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error getting bot status: ${error.message}`);
@@ -211,9 +213,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async toggleBot(enabled: boolean, token: string) {
+  async toggleBot(enabled: boolean, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.patch('/api/whatsapp/web/bot-enabled', { enabled }, this.getHeaders(token));
+      const res = await this.httpClient.patch('/api/whatsapp/web/bot-enabled', { enabled }, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error toggling bot: ${error.message}`);
@@ -221,9 +223,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getCustomerProfile(phone: string, token: string) {
+  async getCustomerProfile(phone: string, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.get(`/api/whatsapp/chats/${encodeURIComponent(phone)}/profile`, this.getHeaders(token));
+      const res = await this.httpClient.get(`/api/whatsapp/chats/${encodeURIComponent(phone)}/profile`, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error getting customer profile: ${error.message}`);
@@ -231,9 +233,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async deleteMessage(messageId: string, token: string) {
+  async deleteMessage(messageId: string, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.delete(`/api/whatsapp/chats/messages/${messageId}`, this.getHeaders(token));
+      const res = await this.httpClient.delete(`/api/whatsapp/chats/messages/${messageId}`, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error deleting message: ${error.message}`);
@@ -241,9 +243,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async clearChat(phone: string, token: string) {
+  async clearChat(phone: string, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.delete(`/api/whatsapp/chats/${encodeURIComponent(phone)}/clear`, this.getHeaders(token));
+      const res = await this.httpClient.delete(`/api/whatsapp/chats/${encodeURIComponent(phone)}/clear`, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error clearing chat: ${error.message}`);
@@ -251,12 +253,12 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async pauseBotForChat(phone: string, paused: boolean, token: string) {
+  async pauseBotForChat(phone: string, paused: boolean, token: string, businessId?: string) {
     try {
       const res = await this.httpClient.patch(
         `/api/whatsapp/chats/${encodeURIComponent(phone)}/bot-pause`,
         { paused },
-        this.getHeaders(token),
+        this.getHeaders(token, businessId),
       );
       return res.data;
     } catch (error: any) {
@@ -265,9 +267,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getPauseStatuses(phones: string[], token: string) {
+  async getPauseStatuses(phones: string[], token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.post('/api/whatsapp/chats/pause-statuses', { phones }, this.getHeaders(token));
+      const res = await this.httpClient.post('/api/whatsapp/chats/pause-statuses', { phones }, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       this.logger.error(`Error getting pause statuses: ${error.message}`);
@@ -275,9 +277,9 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getAvatar(phone: string, token: string) {
+  async getAvatar(phone: string, token: string, businessId?: string) {
     try {
-      const res = await this.httpClient.get(`/api/whatsapp/chats/${encodeURIComponent(phone)}/avatar`, this.getHeaders(token));
+      const res = await this.httpClient.get(`/api/whatsapp/chats/${encodeURIComponent(phone)}/avatar`, this.getHeaders(token, businessId));
       return res.data;
     } catch (error: any) {
       return null;
@@ -300,12 +302,15 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     let waStatus = { status: 'disconnected' };
     let botStatus = { enabled: false };
     try {
-      // Try to get statuses without token (internal check)
       waStatus = await this.getWhatsAppStatus('');
     } catch {}
     try {
       botStatus = await this.getBotEnabled('');
     } catch {}
+
+    // Server health metrics
+    const memUsage = process.memoryUsage();
+    const uptimeSeconds = process.uptime();
 
     return {
       whatsapp: waStatus,
@@ -313,7 +318,53 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
       swarmEngine: 'online',
       telephony: 'standby',
       redis: 'connected',
+      server: {
+        ramUsedMB: Math.round(memUsage.rss / 1024 / 1024),
+        heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+        uptimeHours: Math.round(uptimeSeconds / 3600 * 100) / 100,
+        nodeVersion: process.version,
+      },
+      livechatBridge: {
+        connected: this.socket?.connected || false,
+        url: this.baseUrl,
+      },
       timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Detailed health endpoint for Super Admin panel.
+   * Queries the Live Chat backend for per-session WhatsApp statistics.
+   */
+  async getDetailedHealth(): Promise<any> {
+    const sysStatus = await this.getSystemStatus();
+
+    // Query Live Chat backend for WhatsApp session stats
+    let livechatHealth: any = null;
+    try {
+      const res = await this.httpClient.get('/health', { timeout: 5000 });
+      livechatHealth = res.data;
+    } catch (err: any) {
+      livechatHealth = { status: 'unreachable', error: err.message };
+    }
+
+    // Query Live Chat backend for active sessions
+    let activeSessions: any[] = [];
+    try {
+      const res = await this.httpClient.get('/api/whatsapp/web/sessions', {
+        headers: { 'x-internal': 'true' },
+        timeout: 5000,
+      });
+      activeSessions = res.data?.sessions || [];
+    } catch {
+      // Endpoint may not exist yet
+    }
+
+    return {
+      ...sysStatus,
+      livechatService: livechatHealth,
+      whatsappSessions: activeSessions,
     };
   }
 }

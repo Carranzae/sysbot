@@ -14,17 +14,20 @@ export class WhatsAppController {
 
   async getStatus(req: Request, res: Response) {
     try {
-      const status = await whatsappDomainService.getWebStatus(req.user!.id)
+      const clientId = req.businessId || req.user!.id
+      const status = await whatsappDomainService.getWebStatus(clientId)
       res.json({ success: true, ...status })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
     }
   }
 
+
   async startSession(req: Request, res: Response) {
     try {
       const { usePairingCode, phone } = req.body
-      const result = await whatsappDomainService.startSession(req.user!.id, usePairingCode, phone)
+      const clientId = req.businessId || req.user!.id
+      const result = await whatsappDomainService.startSession(clientId, usePairingCode, phone)
       res.json({ success: true, ...result })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -33,7 +36,8 @@ export class WhatsAppController {
 
   async disconnect(req: Request, res: Response) {
     try {
-      await whatsappDomainService.disconnectWeb(req.user!.id)
+      const clientId = req.businessId || req.user!.id
+      await whatsappDomainService.disconnectWeb(clientId)
       res.json({ success: true })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -42,7 +46,8 @@ export class WhatsAppController {
 
   async getBotEnabled(req: Request, res: Response) {
     try {
-      const enabled = await whatsappDomainService.getBotEnabled(req.user!.id)
+      const clientId = req.businessId || req.user!.id
+      const enabled = await whatsappDomainService.getBotEnabled(clientId)
       res.json({ success: true, enabled })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -53,7 +58,8 @@ export class WhatsAppController {
     try {
       const { enabled } = req.body
       if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be boolean' })
-      const result = await whatsappDomainService.setBotEnabled(req.user!.id, enabled)
+      const clientId = req.businessId || req.user!.id
+      const result = await whatsappDomainService.setBotEnabled(clientId, enabled)
       res.json({ success: true, enabled: result })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -62,7 +68,8 @@ export class WhatsAppController {
 
   async getChats(req: Request, res: Response) {
     try {
-      const chats = await whatsappDomainService.getChatList(req.user!.id)
+      const clientId = req.businessId || req.user!.id
+      const chats = await whatsappDomainService.getChatList(clientId)
       res.json({ success: true, chats })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -73,7 +80,8 @@ export class WhatsAppController {
     try {
       const { phone } = req.params
       if (!phone) return res.status(400).json({ error: 'phone is required' })
-      const profile = await whatsappDomainService.getCustomerProfile(req.user!.id, phone)
+      const clientId = req.businessId || req.user!.id
+      const profile = await whatsappDomainService.getCustomerProfile(clientId, phone)
       res.json({ success: true, profile })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -84,7 +92,8 @@ export class WhatsAppController {
     try {
       const { phone } = req.params
       if (!phone) return res.status(400).json({ error: 'phone is required' })
-      const avatar = await whatsappDomainService.getCustomerAvatar(req.user!.id, phone)
+      const clientId = req.businessId || req.user!.id
+      const avatar = await whatsappDomainService.getCustomerAvatar(clientId, phone)
       res.json({ success: true, avatarUrl: avatar.avatarUrl })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -95,7 +104,8 @@ export class WhatsAppController {
     try {
       const { phone } = req.params
       if (!phone) return res.status(400).json({ error: 'phone is required' })
-      const messages = await whatsappDomainService.getChatMessages(req.user!.id, phone)
+      const clientId = req.businessId || req.user!.id
+      const messages = await whatsappDomainService.getChatMessages(clientId, phone)
       res.json({ success: true, messages })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -105,7 +115,8 @@ export class WhatsAppController {
   async deleteMessage(req: Request, res: Response) {
     try {
       const { id } = req.params
-      await whatsappDomainService.deleteMessage(req.user!.id, id)
+      const clientId = req.businessId || req.user!.id
+      await whatsappDomainService.deleteMessage(clientId, id)
       res.json({ success: true })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -115,7 +126,8 @@ export class WhatsAppController {
   async clearChat(req: Request, res: Response) {
     try {
       const { phone } = req.params
-      await whatsappDomainService.clearChat(req.user!.id, phone)
+      const clientId = req.businessId || req.user!.id
+      await whatsappDomainService.clearChat(clientId, phone)
       res.json({ success: true })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -128,13 +140,14 @@ export class WhatsAppController {
       if (!to) return res.status(400).json({ error: 'to is required' })
       
       const { whatsappRouter } = await import('../../../services/whatsappRouter.service.js')
+      const clientId = req.businessId || req.user!.id
       
       let success = false
       if (mediaUrl) {
-         success = await whatsappRouter.sendMedia(req.user!.id, to, mediaUrl, message || '')
+         success = await whatsappRouter.sendMedia(clientId, to, mediaUrl, message || '')
       } else {
          if (!message) return res.status(400).json({ error: 'message is required if no media' })
-         success = await whatsappRouter.sendMessage(req.user!.id, to, message)
+         success = await whatsappRouter.sendMessage(clientId, to, message)
       }
       
       res.json({ success })
@@ -201,7 +214,8 @@ export class WhatsAppController {
       const { phone } = req.params
       const { pause } = req.body
       if (typeof pause !== 'boolean') return res.status(400).json({ error: 'pause must be boolean' })
-      const result = await whatsappDomainService.toggleBotPause(req.user!.id, phone, pause)
+      const clientId = req.businessId || req.user!.id
+      const result = await whatsappDomainService.toggleBotPause(clientId, phone, pause)
       res.json({ success: true, paused: result })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
@@ -216,8 +230,22 @@ export class WhatsAppController {
     try {
       const { phones } = req.body
       if (!Array.isArray(phones)) return res.status(400).json({ error: 'phones must be an array' })
-      const statuses = await whatsappDomainService.getChatPauseStatuses(req.user!.id, phones)
+      const clientId = req.businessId || req.user!.id
+      const statuses = await whatsappDomainService.getChatPauseStatuses(clientId, phones)
       res.json({ success: true, statuses })
+    } catch (error: any) {
+      res.status(500).json({ error: error.message })
+    }
+  }
+  /**
+   * GET /web/sessions
+   * Returns all active WhatsApp sessions (for Super Admin health monitoring)
+   */
+  async getAllSessions(req: Request, res: Response) {
+    try {
+      const { whatsappWebManager } = await import('../../../services/whatsappWeb.service.js')
+      const sessions = whatsappWebManager.getAllSessionsStats()
+      res.json({ success: true, sessions })
     } catch (error: any) {
       res.status(500).json({ error: error.message })
     }

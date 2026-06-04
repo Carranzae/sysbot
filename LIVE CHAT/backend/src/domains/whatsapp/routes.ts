@@ -25,5 +25,6 @@ router.patch('/chats/:phone/bot-pause', requireAuth, whatsappController.toggleBo
 router.delete('/chats/messages/:id', requireAuth, whatsappController.deleteMessage)
 router.delete('/chats/:phone/clear', requireAuth, whatsappController.clearChat)
 router.post('/send', requireAuth, whatsappController.sendMessage)
+router.get('/web/sessions', whatsappController.getAllSessions)
 
 export default router

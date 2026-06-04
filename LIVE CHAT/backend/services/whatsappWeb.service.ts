@@ -61,6 +61,7 @@ interface WhatsAppSession {
 class WhatsAppWebManager {
   private sessions: Map<string, WhatsAppSession> = new Map()
   private pendingInitializations: Map<string, Promise<WhatsAppSession>> = new Map()
+  private sessionHeartbeats: Map<string, NodeJS.Timeout> = new Map()
   private botEnabled: Map<string, boolean> = new Map()
   private processingMessages: Set<string> = new Set()
   private botSentMessagesCache: Set<string> = new Set()
@@ -117,22 +118,186 @@ class WhatsAppWebManager {
     }
   }
 
-  getBotEnabled(userId: string): boolean {
-    return this.botEnabled.get(userId) ?? true // activo por defecto
+  getBotEnabled(clientId: string): boolean {
+    return this.botEnabled.get(clientId) ?? true // activo por defecto
   }
 
-  setBotEnabled(userId: string, enabled: boolean): void {
-    this.botEnabled.set(userId, enabled)
+  setBotEnabled(clientId: string, enabled: boolean): void {
+    this.botEnabled.set(clientId, enabled)
     this.saveSettings() // persistir inmediatamente
-    logger.info(`Bot de WhatsApp ${enabled ? 'ACTIVADO ✅' : 'DETENIDO ⛔'} para ${userId}`)
-    io.to(`user_${userId}`).emit('whatsapp_bot_toggle', { enabled })
+    logger.info(`Bot de WhatsApp ${enabled ? 'ACTIVADO ✅' : 'DETENIDO ⛔'} para ${clientId}`)
+    io.to(`user_${clientId}`).emit('whatsapp_bot_toggle', { enabled })
   }
 
   constructor() {
     // Asegurar que el directorio de sesiones existe
     const sessionsDir = path.join(process.cwd(), '.wwebjs_auth')
+    if (!fs.existsSync(sessionsDir)) {
+      fs.mkdirSync(sessionsDir, { recursive: true })
+    }
     // Cargar estados persistidos
     this.loadSettings()
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // ██ FASE 1: SINCRONIZACIÓN HISTÓRICA DE CONTACTOS Y CHATS ██
+  // ════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Lee los últimos chats activos de WhatsApp Web tras escanear el QR
+   * y guarda contactos + mensajes recientes en la BD para nutrir la IA.
+   */
+  private async syncHistoricalData(clientId: string, client: InstanceType<typeof Client>): Promise<void> {
+    logger.info(`[HIST-SYNC] Iniciando sincronización histórica para negocio ${clientId}...`)
+
+    try {
+      // 1. Obtener los últimos 50 chats activos
+      const chats = await client.getChats()
+      const relevantChats = chats
+        .filter((c: any) => !c.isGroup && !c.id._serialized.includes('@g.us') && !c.id._serialized.includes('status'))
+        .slice(0, 50)
+
+      logger.info(`[HIST-SYNC] Encontrados ${relevantChats.length} chats individuales relevantes`)
+
+      let contactsSynced = 0
+      let messagesSynced = 0
+
+      for (const chat of relevantChats) {
+        try {
+          const phone = (chat.id.user || '').replace(/\D/g, '')
+          if (!phone || phone.length < 7 || phone.length > 13) continue
+
+          // 2. Extraer nombre del contacto
+          let contactName = chat.name || ''
+          try {
+            const contact = await client.getContactById(chat.id._serialized)
+            contactName = contact.name || contact.pushname || contactName || `+${phone}`
+          } catch (e) {
+            // Usar nombre del chat como fallback
+          }
+
+          // 3. Verificar si ya tenemos mensajes de este contacto en la BD
+          const { rows: existing } = await db.query(
+            'SELECT COUNT(*) as count FROM whatsapp_messages WHERE user_id = $1 AND customer_phone = $2',
+            [clientId, phone]
+          )
+
+          if (parseInt(existing[0]?.count || '0') > 0) {
+            // Ya tenemos historial, solo actualizar pushname si falta
+            await db.query(
+              `UPDATE whatsapp_messages SET customer_pushname = $1 
+               WHERE user_id = $2 AND customer_phone = $3 
+               AND (customer_pushname IS NULL OR customer_pushname = '' OR customer_pushname = customer_phone)`,
+              [contactName, clientId, phone]
+            )
+            continue
+          }
+
+          // 4. Obtener últimos 20 mensajes de este chat
+          const messages = await chat.fetchMessages({ limit: 20 })
+
+          for (const msg of messages) {
+            try {
+              if (msg.isStatus) continue
+              const direction = msg.fromMe ? 'outgoing' : 'incoming'
+              const source = msg.fromMe ? 'bot' : 'customer'
+              const body = msg.body || ''
+
+              if (!body.trim()) continue
+
+              await db.query(`
+                INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, sent_at)
+                VALUES ($1, $2, $3, $4, $5, 'sent', $6, to_timestamp($7))
+                ON CONFLICT DO NOTHING
+              `, [clientId, phone, body, direction, source, contactName, (msg.timestamp || Date.now() / 1000)])
+
+              messagesSynced++
+            } catch (msgErr: any) {
+              // Mensaje individual falló, continuar con el siguiente
+            }
+          }
+
+          contactsSynced++
+        } catch (chatErr: any) {
+          logger.warn(`[HIST-SYNC] Error procesando chat: ${chatErr.message}`)
+        }
+      }
+
+      logger.info(`[HIST-SYNC] ✅ Sincronización completada para ${clientId}: ${contactsSynced} contactos, ${messagesSynced} mensajes importados`)
+
+      // Notificar al panel que el historial está listo
+      io.to(`user_${clientId}`).emit('whatsapp_status', { status: 'connected', historySync: true, contactsSynced, messagesSynced })
+    } catch (error: any) {
+      logger.error(`[HIST-SYNC] Error general: ${error.message}`)
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // ██ FASE 2: WATCHDOG HEARTBEAT (Anti-zombie / Anti-cuelgue) ██
+  // ════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Inicia un chequeo periódico cada 90 segundos para detectar sesiones
+   * fantasma (Chrome murió pero la sesión sigue en el Map).
+   */
+  private startHeartbeat(clientId: string, session: WhatsAppSession): void {
+    // Limpiar heartbeat anterior si existe
+    this.stopHeartbeat(clientId)
+
+    const interval = setInterval(async () => {
+      try {
+        // Verificar que la página de Puppeteer sigue viva
+        if (!session.client?.pupPage || session.client.pupPage.isClosed()) {
+          logger.warn(`[HEARTBEAT] ⚠️ Sesión zombie detectada para ${clientId}. Reiniciando...`)
+          this.stopHeartbeat(clientId)
+          this.sessions.delete(clientId)
+
+          // Intentar destruir el cliente silenciosamente
+          try { await session.client.destroy() } catch (e) {}
+
+          // Esperar 5 segundos y reiniciar
+          setTimeout(() => {
+            logger.info(`[HEARTBEAT] Reiniciando sesión para ${clientId}...`)
+            this.getSession(clientId).catch(err => {
+              logger.error(`[HEARTBEAT] Error reiniciando ${clientId}: ${err.message}`)
+            })
+          }, 5000)
+          return
+        }
+
+        // Ping básico: evaluar algo simple en la página
+        await Promise.race([
+          session.client.pupPage.evaluate(() => 1 + 1),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Heartbeat timeout')), 15000))
+        ])
+      } catch (err: any) {
+        logger.warn(`[HEARTBEAT] Sesión ${clientId} no responde: ${err.message}. Marcando para reinicio...`)
+        this.stopHeartbeat(clientId)
+        session.status = 'disconnected'
+        this.sessions.delete(clientId)
+
+        try { await session.client.destroy() } catch (e) {}
+
+        // Auto-reconexión con backoff
+        setTimeout(() => {
+          logger.info(`[HEARTBEAT] Auto-reconectando ${clientId}...`)
+          this.getSession(clientId).catch(reconErr => {
+            logger.error(`[HEARTBEAT] Error en auto-reconexión de ${clientId}: ${reconErr.message}`)
+          })
+        }, 10000)
+      }
+    }, 90000) // Cada 90 segundos
+
+    this.sessionHeartbeats.set(clientId, interval)
+    logger.info(`[HEARTBEAT] Watchdog activado para ${clientId} (cada 90s)`)
+  }
+
+  private stopHeartbeat(clientId: string): void {
+    const existing = this.sessionHeartbeats.get(clientId)
+    if (existing) {
+      clearInterval(existing)
+      this.sessionHeartbeats.delete(clientId)
+    }
   }
 
   /**
@@ -140,19 +305,18 @@ class WhatsAppWebManager {
    */
   public async initializeAllSessions(): Promise<void> {
     try {
-      const { db } = await import('../database/db.js')
-      // Buscar usuarios que tengan configurado WhatsApp Web
-      const { rows } = await db.query("SELECT id FROM users WHERE role IN ('provider', 'admin', 'owner')")
-      
-      logger.info(`[AUTO-START] Escaneando sesiones guardadas para ${rows.length} usuarios...`)
-      
+      logger.info(`[AUTO-START] Escaneando sesiones guardadas en .wwebjs_auth...`)
       const fs = await import('fs')
-      for (const user of rows) {
-        const sessionPath = path.join(process.cwd(), '.wwebjs_auth', `session-${user.id}`)
-        if (fs.existsSync(sessionPath)) {
-          logger.info(`[AUTO-START] Reanudando sesión activa para: ${user.id}`)
-          this.getSession(user.id).catch(err => {
-            logger.error(`[AUTO-START] Error reanudando sesión ${user.id}: ${err.message}`)
+      const authDir = path.join(process.cwd(), '.wwebjs_auth')
+      if (!fs.existsSync(authDir)) return
+
+      const files = fs.readdirSync(authDir)
+      for (const file of files) {
+        if (file.startsWith('session-')) {
+          const clientId = file.replace('session-', '')
+          logger.info(`[AUTO-START] Reanudando sesión activa para: ${clientId}`)
+          this.getSession(clientId).catch(err => {
+            logger.error(`[AUTO-START] Error reanudando sesión ${clientId}: ${err.message}`)
           })
         }
       }
@@ -164,8 +328,8 @@ class WhatsAppWebManager {
   /**
    * Obtiene el estado de la sesión de forma síncrona (lectura rápida de caché)
    */
-  public getSessionSync(userId: string): WhatsAppSession | undefined {
-    return this.sessions.get(userId)
+  public getSessionSync(clientId: string): WhatsAppSession | undefined {
+    return this.sessions.get(clientId)
   }
 
   /**
@@ -173,9 +337,9 @@ class WhatsAppWebManager {
    */
   public getAllSessionsStats() {
     const list: any[] = []
-    for (const [userId, session] of this.sessions.entries()) {
+    for (const [clientId, session] of this.sessions.entries()) {
       list.push({
-        userId,
+        userId: clientId,
         status: session.status,
         ownPhone: session.ownPhone || null
       })
@@ -186,28 +350,28 @@ class WhatsAppWebManager {
   /**
    * Obtiene o inicializa la sesión de un usuario de forma segura (concurrencia controlada)
    */
-  async getSession(userId: string, usePairingCode?: boolean, phone?: string): Promise<WhatsAppSession> {
-    if (this.sessions.has(userId)) {
-      return this.sessions.get(userId)!
+  async getSession(clientId: string, usePairingCode?: boolean, phone?: string): Promise<WhatsAppSession> {
+    if (this.sessions.has(clientId)) {
+      return this.sessions.get(clientId)!
     }
 
-    // Si ya hay una inicialización en curso para este usuario, esperar a esa promesa
-    if (this.pendingInitializations.has(userId)) {
-      logger.info(`[WhatsApp] Esperando inicialización en curso para: ${userId}`)
-      return this.pendingInitializations.get(userId)!
+    // Si ya hay una inicialización en curso para este cliente, esperar a esa promesa
+    if (this.pendingInitializations.has(clientId)) {
+      logger.info(`[WhatsApp] Esperando inicialización en curso para: ${clientId}`)
+      return this.pendingInitializations.get(clientId)!
     }
 
     // Registrar nueva promesa de inicialización
-    const initPromise = this.initSession(userId, usePairingCode, phone).finally(() => {
-      this.pendingInitializations.delete(userId)
+    const initPromise = this.initSession(clientId, usePairingCode, phone).finally(() => {
+      this.pendingInitializations.delete(clientId)
     })
     
-    this.pendingInitializations.set(userId, initPromise)
+    this.pendingInitializations.set(clientId, initPromise)
     return initPromise
   }
 
-  private async initSession(userId: string, usePairingCode?: boolean, phone?: string): Promise<WhatsAppSession> {
-    logger.info(`Iniciando sesión de WhatsApp Web para usuario: ${userId}`)
+  private async initSession(clientId: string, usePairingCode?: boolean, phone?: string): Promise<WhatsAppSession> {
+    logger.info(`Iniciando sesión de WhatsApp Web para cliente: ${clientId}`)
 
     const chromePath = findChromePath()
 
@@ -216,7 +380,7 @@ class WhatsAppWebManager {
     if (usePairingCode && !finalPhone) {
       try {
         const { db } = await import('../database/db.js')
-        const { rows } = await db.query("SELECT phone FROM users WHERE id = $1", [userId])
+        const { rows } = await db.query("SELECT phone FROM users WHERE id = $1 OR business_id = $1 LIMIT 1", [clientId])
         finalPhone = rows[0]?.phone
       } catch (dbErr: any) {
         logger.error('Error obteniendo teléfono de base de datos para emparejamiento:', dbErr)
@@ -225,7 +389,7 @@ class WhatsAppWebManager {
 
     const clientOptions: any = {
       authStrategy: new LocalAuth({
-        clientId: userId,
+        clientId: clientId,
         dataPath: path.resolve(process.cwd(), '.wwebjs_auth')
       }),
       puppeteer: {
@@ -249,7 +413,35 @@ class WhatsAppWebManager {
           '--mute-audio',
           '--no-default-browser-check',
           '--disable-component-update',
-          '--js-flags="--max-old-space-size=256"' // Límite estricto de RAM por instancia
+          // ── FASE 2: OPTIMIZACIÓN EXTREMA DE RAM ──
+          '--disable-features=TranslateUI',
+          '--disable-ipc-flooding-protection',
+          '--disable-renderer-backgrounding',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-features=CalculateNativeWinOcclusion',
+          '--disable-hang-monitor',
+          '--disable-prompt-on-repost',
+          '--disable-domain-reliability',
+          '--disable-client-side-phishing-detection',
+          '--disable-features=AudioServiceOutOfProcess',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--font-render-hinting=none',
+          '--disable-remote-fonts',
+          '--disable-logging',
+          '--disable-permissions-api',
+          '--disable-notifications',
+          '--disable-offer-upload-credit-cards',
+          '--disable-offer-store-unmasked-wallet-cards',
+          '--disable-popup-blocking',
+          '--disable-print-preview',
+          '--disable-speech-api',
+          '--disable-web-security',
+          '--aggressive-cache-discard',
+          '--disable-back-forward-cache',
+          '--js-flags=--max-old-space-size=128', // Límite estricto 128MB por instancia
+          '--single-process', // Reduce RAM ~40% con un solo proceso
         ],
       }
     }
@@ -273,32 +465,32 @@ class WhatsAppWebManager {
       status: 'loading'
     }
 
-    this.sessions.set(userId, session)
+    this.sessions.set(clientId, session)
 
     client.on('qr', async (qr) => {
-      logger.info(`Nuevo QR generado para ${userId}`)
+      logger.info(`Nuevo QR generado para ${clientId}`)
       const qrDataUrl = await qrcode.toDataURL(qr)
       session.qr = qrDataUrl
       session.code = undefined
       session.status = 'qr'
 
       // Notificar vía Socket.io si el usuario está conectado
-      io.to(`user_${userId}`).emit('whatsapp_qr', { qr: qrDataUrl, code: null })
+      io.to(`user_${clientId}`).emit('whatsapp_qr', { qr: qrDataUrl, code: null })
     })
 
     client.on('code', (code) => {
-      logger.info(`[WhatsApp-Pairing] Nuevo código de vinculación generado para ${userId}: ${code}`)
+      logger.info(`[WhatsApp-Pairing] Nuevo código de vinculación generado para ${clientId}: ${code}`)
       session.qr = undefined
       session.code = code
       session.status = 'qr' // Mantenemos status 'qr' para la máquina de estados pero mandando el código
 
       // Notificar vía Socket.io
-      io.to(`user_${userId}`).emit('whatsapp_code', { code })
-      io.to(`user_${userId}`).emit('whatsapp_qr', { qr: null, code })
+      io.to(`user_${clientId}`).emit('whatsapp_code', { code })
+      io.to(`user_${clientId}`).emit('whatsapp_qr', { qr: null, code })
     })
 
     client.on('ready', () => {
-      logger.info(`WhatsApp Web listo para ${userId}`)
+      logger.info(`WhatsApp Web listo para ${clientId}`)
       session.status = 'connected'
       session.qr = undefined
       session.code = undefined
@@ -307,7 +499,6 @@ class WhatsAppWebManager {
       try {
         const wid = client.info?.wid
         session.ownPhone = (wid?.user || '').replace(/\D/g, '')
-        // El LID puede estar en wid.lid o wid._serialized contiene el LID en algunas versiones
         const rawLid = (wid as any)?.lid || (wid as any)?._serialized?.split('@')[0] || ''
         session.ownLid = rawLid.toString().replace(/\D/g, '')
         logger.info(`[SESSION-ID] Número real: ${session.ownPhone} | LID interno: ${session.ownLid}`)
@@ -315,8 +506,16 @@ class WhatsAppWebManager {
         logger.warn('[SESSION-ID] No se pudo capturar LID de la sesión')
       }
 
-      io.to(`user_${userId}`).emit('whatsapp_status', { status: 'connected' })
-      io.to(`user_${userId}`).emit('whatsapp_ready', { status: 'connected' })
+      io.to(`user_${clientId}`).emit('whatsapp_status', { status: 'connected' })
+      io.to(`user_${clientId}`).emit('whatsapp_ready', { status: 'connected' })
+
+      // ── FASE 1: SINCRONIZACIÓN HISTÓRICA DE CONTACTOS ──
+      this.syncHistoricalData(clientId, client).catch(err => {
+        logger.error(`[HIST-SYNC] Error sincronizando historial para ${clientId}: ${err.message}`)
+      })
+
+      // ── FASE 2: WATCHDOG HEARTBEAT (Anti-zombie) ──
+      this.startHeartbeat(clientId, session)
 
       // --- BARRIDO PROACTIVO DE LIDS Y PUSHNAMES HISTÓRICOS ---
       setTimeout(async () => {
@@ -324,7 +523,7 @@ class WhatsAppWebManager {
           // A. Barrido de LIDs largos a números reales
           const { rows } = await db.query(
             "SELECT DISTINCT customer_phone FROM whatsapp_messages WHERE user_id = $1 AND LENGTH(customer_phone) > 13",
-            [userId]
+            [clientId]
           )
           if (rows.length > 0) {
             logger.info(`[LID-SWEEP] Detectados ${rows.length} LIDs históricos para barrido de limpieza...`)
@@ -346,12 +545,12 @@ class WhatsAppWebManager {
                   logger.info(`[LID-SWEEP] Limpieza proactiva: LID ${lid} → ${realNum}`)
                   await db.query(
                     "UPDATE whatsapp_messages SET customer_phone = $1 WHERE customer_phone = $2 AND user_id = $3",
-                    [realNum, lid, userId]
+                    [realNum, lid, clientId]
                   )
                   // También actualizar el pushname si estaba puesto el número largo
                   await db.query(
                     "UPDATE whatsapp_messages SET customer_pushname = $1 WHERE customer_phone = $1 AND customer_pushname = $2 AND user_id = $3",
-                    [realNum, lid, userId]
+                    [realNum, lid, clientId]
                   )
                 }
               }
@@ -364,7 +563,7 @@ class WhatsAppWebManager {
             `SELECT DISTINCT customer_phone FROM whatsapp_messages 
              WHERE user_id = $1 AND LENGTH(customer_phone) <= 13 
              AND (customer_pushname IS NULL OR customer_pushname LIKE '%214409%' OR customer_pushname = customer_phone)`,
-            [userId]
+            [clientId]
           )
           if (dirtyPushnames.length > 0) {
             logger.info(`[PUSHNAME-SWEEP] Detectados ${dirtyPushnames.length} contactos con pushname sucio. Resolviendo...`)
@@ -378,7 +577,7 @@ class WhatsAppWebManager {
                   logger.info(`[PUSHNAME-SWEEP] Resuelto pushname para ${phone} -> ${displayName}`)
                   await db.query(
                     "UPDATE whatsapp_messages SET customer_pushname = $1 WHERE customer_phone = $2 AND user_id = $3",
-                    [displayName, phone, userId]
+                    [displayName, phone, clientId]
                   )
                 } else {
                   throw new Error("No contact name or name is a dirty LID")
@@ -389,7 +588,7 @@ class WhatsAppWebManager {
                 logger.info(`[PUSHNAME-SWEEP-FALLBACK] Aplicando formato estético para ${phone} -> ${formattedPhone}`)
                 await db.query(
                   "UPDATE whatsapp_messages SET customer_pushname = $1 WHERE customer_phone = $2 AND user_id = $3",
-                  [formattedPhone, phone, userId]
+                  [formattedPhone, phone, clientId]
                 )
               }
             }
@@ -397,7 +596,7 @@ class WhatsAppWebManager {
           }
 
           // Avisar al panel para refrescar la vista
-          io.to(`user_${userId}`).emit('whatsapp_status', { status: 'connected', refresh: true })
+          io.to(`user_${clientId}`).emit('whatsapp_status', { status: 'connected', refresh: true })
         } catch (sweepErr: any) {
           logger.error(`[LID-SWEEP] Error en barrido proactivo: ${sweepErr.message || sweepErr}`)
         }
@@ -405,16 +604,16 @@ class WhatsAppWebManager {
     })
 
     client.on('message', async (msg) => {
-      // Encontrar el userId dueño de esta sesión de cliente
-      let userId: string | undefined
+      // Encontrar el clientId dueño de esta sesión de cliente
+      let clientId: string | undefined
       for (const [id, session] of this.sessions.entries()) {
         if (session.client === client) {
-          userId = id
+          clientId = id
           break
         }
       }
       
-      if (!userId) return
+      if (!clientId) return
 
       // --- ESCUDO ANTI-DUPLICADOS DE ÉLITE (Triple Filtro) ---
       const msgId = msg.id?._serialized || `${msg.from}_${msg.timestamp}`
@@ -440,7 +639,7 @@ class WhatsAppWebManager {
 
       try {
         // ¿Es el dueño del bot el que escribe? (Para comandos administrativos)
-        const isOwner = msg.from.includes(userId.replace(/\D/g, ''))
+        const isOwner = msg.from.includes(clientId.replace(/\D/g, ''))
 
         // --- MEJORA DE ÉLITE: Captura de Número Real y Filtro de Sesión ---
         let customerPhone = (msg.from || '').split('@')[0]
@@ -498,7 +697,7 @@ class WhatsAppWebManager {
           if (displayName && displayName !== customerPhone && customerPhone.length > 5) {
             await db.query(
               "UPDATE whatsapp_messages SET customer_pushname = $1 WHERE customer_phone = $2 AND user_id = $3",
-              [displayName, customerPhone.replace(/\D/g, ''), userId]
+              [displayName, customerPhone.replace(/\D/g, ''), clientId]
             )
           }
         } catch (e: any) {
@@ -538,7 +737,7 @@ class WhatsAppWebManager {
                 // Actualizar retroactivamente la base de datos para corregir la ID de Meta histórica
                 await db.query(
                   "UPDATE whatsapp_messages SET customer_phone = $1 WHERE customer_phone = $2 AND user_id = $3",
-                  [realNum, customerPhone, userId]
+                  [realNum, customerPhone, clientId]
                 )
                 
                 customerPhone = realNum
@@ -555,7 +754,7 @@ class WhatsAppWebManager {
             `SELECT DISTINCT customer_phone FROM whatsapp_messages
              WHERE user_id = $1 AND RIGHT(customer_phone, 9) = $2 AND LENGTH(customer_phone) <= 13
              LIMIT 1`,
-            [userId, suffix9]
+            [clientId, suffix9]
           )
           if (existing.rows.length > 0) {
             logger.info(`[LID-FIX] Reasignando LID ${customerPhone} → ${existing.rows[0].customer_phone}`)
@@ -566,7 +765,7 @@ class WhatsAppWebManager {
                `SELECT DISTINCT customer_phone FROM whatsapp_messages
                 WHERE user_id = $1 AND customer_pushname = $2 AND LENGTH(customer_phone) <= 13
                 LIMIT 1`,
-               [userId, displayName]
+               [clientId, displayName]
              )
              if (existingByName.rows.length > 0 && displayName && displayName.length > 3 && !displayName.startsWith('+')) {
                logger.info(`[LID-FIX-NAME] Reasignando LID por nombre ${displayName} → ${existingByName.rows[0].customer_phone}`)
@@ -578,8 +777,8 @@ class WhatsAppWebManager {
         let messageBody = msg.body
 
         // Notificar al panel de chat en vivo
-        io.to(`user_${userId}`).emit('whatsapp_message', {
-          userId,
+        io.to(`user_${clientId}`).emit('whatsapp_message', {
+          userId: clientId,
           customerPhone,
           body: messageBody,
           timestamp: Date.now(),
@@ -591,17 +790,17 @@ class WhatsAppWebManager {
         await db.query(`
           INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname)
           VALUES ($1, $2, $3, 'incoming', 'whatsapp_web', 'received', $4)
-        `, [userId, customerPhone, messageBody, displayName])
+        `, [clientId, customerPhone, messageBody, displayName])
 
         // --- LÓGICA DE PAUSA REFINADA (SOLO EXPLÍCITA) ---
-        const isPaused = await conversationStateService.isPaused(userId, customerPhone)
+        const isPaused = await conversationStateService.isPaused(clientId, customerPhone)
         if (isPaused) {
           logger.info(`[BOT] IA en silencio manual para ${customerPhone}.`)
           return
         }
 
         // 2. Si el toggle general está apagado, ignorar
-        if (!this.getBotEnabled(userId)) {
+        if (!this.getBotEnabled(clientId)) {
           return
         }
 
@@ -628,8 +827,8 @@ class WhatsAppWebManager {
           this.cacheSentMessage(sentMsg)
 
           // Sincronizar con el panel
-          await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, replyText, sanitizedDisplayName])
-          io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+          await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, replyText, sanitizedDisplayName])
+          io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
           return
         }
 
@@ -642,10 +841,10 @@ class WhatsAppWebManager {
             // A. Notificar al panel (Para escuchar el audio)
             const audioDataUri = `data:${media.mimetype};base64,${media.data}`
             const audioPayload = {
-              userId, customerPhone, body: '[Audio de voz]', mediaUrl: audioDataUri,
+              userId: clientId, customerPhone, body: '[Audio de voz]', mediaUrl: audioDataUri,
               timestamp: Date.now(), type: 'incoming', source: 'whatsapp_web', mediaType: 'audio'
             }
-            io.to(`user_${userId}`).emit('whatsapp_message', audioPayload)
+            io.to(`user_${clientId}`).emit('whatsapp_message', audioPayload)
 
             // B. Transcribir para la IA
             const { voiceSTTService } = await import('./voiceSTT.service')
@@ -662,10 +861,10 @@ class WhatsAppWebManager {
               await db.query(
                 `INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname)
                  VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`,
-                [userId, customerPhone, sttFallback, sanitizedDisplayName]
+                [clientId, customerPhone, sttFallback, sanitizedDisplayName]
               )
-              io.to(`user_${userId}`).emit('whatsapp_message', {
-                userId, customerPhone, body: sttFallback, timestamp: Date.now(),
+              io.to(`user_${clientId}`).emit('whatsapp_message', {
+                userId: clientId, customerPhone, body: sttFallback, timestamp: Date.now(),
                 type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName
               })
               return // Salir sin procesar más, esperamos el mensaje escrito
@@ -675,7 +874,7 @@ class WhatsAppWebManager {
             await db.query(`
               INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_url, media_type)
               VALUES ($1, $2, $3, 'incoming', 'whatsapp_web', 'received', $4, $5, $6)
-            `, [userId, customerPhone, audioPayload.body, displayName, audioDataUri, 'audio'])
+            `, [clientId, customerPhone, audioPayload.body, displayName, audioDataUri, 'audio'])
           }
         }
 
@@ -686,18 +885,18 @@ class WhatsAppWebManager {
             // A0. Emitir y guardar la imagen entrante en el panel
             const imageDataUri = `data:${media.mimetype};base64,${media.data}`
             const imagePayload = {
-              userId, customerPhone, body: '[Imagen recibida]', mediaUrl: imageDataUri,
+              userId: clientId, customerPhone, body: '[Imagen recibida]', mediaUrl: imageDataUri,
               timestamp: Date.now(), type: 'incoming', source: 'whatsapp_web', mediaType: 'image', pushname: displayName
             }
-            io.to(`user_${userId}`).emit('whatsapp_message', imagePayload)
+            io.to(`user_${clientId}`).emit('whatsapp_message', imagePayload)
             await db.query(`
               INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_url, media_type)
               VALUES ($1, $2, $3, 'incoming', 'whatsapp_web', 'received', $4, $5, 'image')
-            `, [userId, customerPhone, imagePayload.body, displayName, imageDataUri])
+            `, [clientId, customerPhone, imagePayload.body, displayName, imageDataUri])
 
             // A. Intentar Verificación de Pago primero
             const { paymentVerificationService } = await import('./paymentVerification.service')
-            const paymentResult = await paymentVerificationService.verifyPayment(media.data, userId, customerPhone)
+            const paymentResult = await paymentVerificationService.verifyPayment(media.data, clientId, customerPhone)
             
             if (paymentResult.success || (paymentResult as any).isFraud) {
               const replyText = paymentResult.message || 'Pago verificado correctamente. ✅'
@@ -705,21 +904,21 @@ class WhatsAppWebManager {
               this.cacheSentMessage(sentMsg)
 
               // Sincronizar con el panel
-              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, replyText, sanitizedDisplayName])
-              io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, replyText, sanitizedDisplayName])
+              io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
               return
             }
 
             // B. Búsqueda Visual (Para Clientes)
             const { visualSearchService } = await import('./visualSearch.service')
-            const visualResult = await visualSearchService.searchByImage(media.data, userId)
+            const visualResult = await visualSearchService.searchByImage(media.data, clientId)
 
             if (visualResult.success && visualResult.matches && !isOwner) {
               let replyText = visualResult.message + '\n\n'
               for (const p of visualResult.matches) {
                 replyText += `• *${p.name}* - S/ ${p.price}\n`
                 if (p.images && p.images[0]) {
-                  await this.sendMedia(userId, msg.from, p.images[0], `ID: ${p.id}`)
+                  await this.sendMedia(clientId, msg.from, p.images[0], `ID: ${p.id}`)
                 }
               }
               const finalVisualText = replyText + '\n¿Te gustaría que añada alguno a tu carrito?'
@@ -727,8 +926,8 @@ class WhatsAppWebManager {
               this.cacheSentMessage(sentMsg)
 
               // Sincronizar con el panel
-              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, finalVisualText, sanitizedDisplayName])
-              io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: finalVisualText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, finalVisualText, sanitizedDisplayName])
+              io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: finalVisualText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
               return
             }
 
@@ -741,12 +940,12 @@ class WhatsAppWebManager {
               const draft = await inventoryIAService.analyzeNewProduct(media.data, 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80')
               
               if (draft) {
-                conversationStateService.set(userId, customerPhone, { draftProduct: draft })
+                conversationStateService.set(clientId, customerPhone, { draftProduct: draft })
                 const replyText = `✨ *INVENTARIO EXPRESS: NUEVO PRODUCTO DETECTADO*\n\nHe analizado la foto y sugiero esto:\n\n📦 *Nombre:* ${draft.name}\n💰 *Precio:* S/ ${draft.price}\n📝 *Descripción:* ${draft.description}\n🗂️ *Categoría:* ${draft.category}\n\n¿Deseas publicarlo en tu tienda ahora mismo?\n\nResponde *CONFIRMAR* para subirlo.`
                 const sentMsg = await msg.reply(replyText)
                 this.cacheSentMessage(sentMsg)
-                await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, replyText, sanitizedDisplayName])
-                io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+                await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, replyText, sanitizedDisplayName])
+                io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
                 return
               }
             }
@@ -756,8 +955,8 @@ class WhatsAppWebManager {
             const sentMsg = await msg.reply(fallbackText)
             this.cacheSentMessage(sentMsg)
 
-            await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, fallbackText, sanitizedDisplayName])
-            io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: fallbackText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+            await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, fallbackText, sanitizedDisplayName])
+            io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: fallbackText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
             return
           }
         }
@@ -769,44 +968,44 @@ class WhatsAppWebManager {
 
           // A. Confirmar inventario ('CONFIRMAR' o 'LISTO')
           if (cmd === 'confirmar' || cmd === 'listo') {
-            const state = await conversationStateService.get(userId, customerPhone)
+            const state = await conversationStateService.get(clientId, customerPhone)
             if (state && state.draftProduct) {
               const { inventoryIAService } = await import('./inventoryIA.service')
-              const productId = await inventoryIAService.saveProduct(userId, state.draftProduct)
+              const productId = await inventoryIAService.saveProduct(clientId, state.draftProduct)
               const replyText = `✅ *PRODUCTO PUBLICADO EN TU WEB*\n\nSe ha guardado "${state.draftProduct.name}" con éxito.\nID: ${productId}\n\nYa está disponible para tus clientes.`
               await msg.reply(replyText)
-              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, replyText, sanitizedDisplayName])
-              io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
-              conversationStateService.set(userId, customerPhone, { draftProduct: null })
+              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, replyText, sanitizedDisplayName])
+              io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+              conversationStateService.set(clientId, customerPhone, { draftProduct: null })
               return
             }
           }
 
           // B. Confirmar broadcast ('ENVIAR' o 'ENVIAR AHORA')
           if (cmd === 'enviar' || cmd === 'enviar ahora') {
-            const state = await conversationStateService.get(userId, customerPhone)
+            const state = await conversationStateService.get(clientId, customerPhone)
             if (state?.draftProduct?.broadcastPlan) {
               const { broadcastService } = await import('./broadcast.service')
               const replyText = `📡 *BROADCAST INICIADO*\n\nEnviando mensajes personalizados a ${state.draftProduct.broadcastPlan.targetCount} cliente(s)...\n\nTe avisaré cuando termine. ✈️`
               await msg.reply(replyText)
-              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [userId, customerPhone, replyText, sanitizedDisplayName])
-              io.to(`user_${userId}`).emit('whatsapp_message', { userId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
+              await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)`, [clientId, customerPhone, replyText, sanitizedDisplayName])
+              io.to(`user_${clientId}`).emit('whatsapp_message', { userId: clientId, customerPhone, body: replyText, timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName })
               const result = await broadcastService.execute(
-                userId,
+                clientId,
                 state.draftProduct.broadcastPlan,
                 async (phone, message) => {
-                  await this.sendMessage(userId, phone, message)
+                  await this.sendMessage(clientId, phone, message)
                 }
               )
               await msg.reply(`📊 *REPORTE DE BROADCAST*\n\n✅ Enviados: ${result.sent}\n❌ Fallidos: ${result.failed}\n👥 Total alcanzado: ${result.targetCount}`)
-              conversationStateService.set(userId, customerPhone, { draftProduct: null })
+              conversationStateService.set(clientId, customerPhone, { draftProduct: null })
               return
             }
           }
 
           // C. Cancelar broadcast ('CANCELAR')
           if (cmd === 'cancelar') {
-            conversationStateService.set(userId, customerPhone, { draftProduct: null })
+            conversationStateService.set(clientId, customerPhone, { draftProduct: null })
             await msg.reply('❌ Operación cancelada.')
             return
           }
@@ -816,7 +1015,7 @@ class WhatsAppWebManager {
             const { broadcastService } = await import('./broadcast.service')
             await msg.reply('🔍 *Analizando tu comando de marketing...*')
             
-            const plan = await broadcastService.parseAdminCommand(messageBody, userId)
+            const plan = await broadcastService.parseAdminCommand(messageBody, clientId)
             if (!plan) {
               await msg.reply('❌ No pude interpretar el comando. Intenta ser más específico.')
               return
@@ -830,7 +1029,7 @@ class WhatsAppWebManager {
             }
 
             // Guardar el plan en el estado para confirmación
-            conversationStateService.set(userId, customerPhone, {
+            conversationStateService.set(clientId, customerPhone, {
               draftProduct: {
                 broadcastPlan: { ...plan, targetCount: preview.count }
               }
@@ -850,7 +1049,7 @@ class WhatsAppWebManager {
           if (messageBody.toLowerCase().includes('atti')) {
             logger.info(`[ADMIN] Acceso autorizado para el dueño (${customerPhone}).`)
             const { aiService } = await import('./ai.service')
-            const adminRes = await aiService.chat(messageBody, [], userId, customerPhone, true)
+            const adminRes = await aiService.chat(messageBody, [], clientId, customerPhone, true)
             await msg.reply(`👔 *CENTRO DE MANDO ATTI*\n\nHola Jefe, aquí tienes la información solicitada:\n\n${adminRes.text}`)
             return
           }
@@ -861,7 +1060,7 @@ class WhatsAppWebManager {
         const translation = await translationService.detectAndTranslate(messageBody)
         const effectiveMessage = translation.translatedToSpanish || messageBody
 
-        const response = await aiOrchestrator.handleIncomingMessage(userId, customerPhone, effectiveMessage)
+        const response = await aiOrchestrator.handleIncomingMessage(clientId, customerPhone, effectiveMessage)
         
         if (response && response.text) {
           // Traducir respuesta si el cliente no habla español
@@ -890,14 +1089,14 @@ class WhatsAppWebManager {
                   const publicUrl = `http://${process.env.IP_SERVER || 'localhost'}:4000/uploads/temp/${fileName}`
                   
                   const audioPayload = {
-                    userId, customerPhone, body: finalText, mediaUrl: publicUrl,
+                    userId: clientId, customerPhone, body: finalText, mediaUrl: publicUrl,
                     timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName, mediaType: 'audio'
                   }
-                  io.to(`user_${userId}`).emit('whatsapp_message', audioPayload)
+                  io.to(`user_${clientId}`).emit('whatsapp_message', audioPayload)
                   await db.query(`
                     INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_url, media_type)
                     VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4, $5, 'audio')
-                  `, [userId, customerPhone, audioPayload.body, sanitizedDisplayName, publicUrl])
+                  `, [clientId, customerPhone, audioPayload.body, sanitizedDisplayName, publicUrl])
                }
              } catch (err: any) {
                logger.error('Error enviando nota de voz:', { error: (err as any).message })
@@ -918,14 +1117,14 @@ class WhatsAppWebManager {
                 
                 // Sincronizar el texto con el panel
                 const textPayload = {
-                  userId, customerPhone, body: finalText, timestamp: Date.now(),
+                  userId: clientId, customerPhone, body: finalText, timestamp: Date.now(),
                   type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName
                 }
                 await db.query(`
                   INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname)
                   VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)
-                `, [userId, customerPhone, finalText, sanitizedDisplayName])
-                io.to(`user_${userId}`).emit('whatsapp_message', textPayload)
+                `, [clientId, customerPhone, finalText, sanitizedDisplayName])
+                io.to(`user_${clientId}`).emit('whatsapp_message', textPayload)
               } catch (txtErr: any) {
                 logger.error('Error enviando texto previo de checkout:', txtErr?.message)
               }
@@ -938,7 +1137,7 @@ class WhatsAppWebManager {
                 const useSeparateText = mediaList.length > 1
                 const caption = (i === 0 && !voiceSent && !useSeparateText) ? finalText : ''
                 
-                await this.sendMedia(userId, msg.from, mediaList[i], caption)
+                await this.sendMedia(clientId, msg.from, mediaList[i], caption)
                 responseSent = true
                 
                 // Sincronizar con el panel y BD
@@ -947,14 +1146,14 @@ class WhatsAppWebManager {
                 const mediaType = isVideo ? 'video' : (isPdf ? 'document' : 'image')
                 
                 const mPayload = {
-                  userId, customerPhone, body: caption || `[Archivo: ${mediaType}]`, mediaUrl: mediaList[i].startsWith('http') ? mediaList[i] : null,
+                  userId: clientId, customerPhone, body: caption || `[Archivo: ${mediaType}]`, mediaUrl: mediaList[i].startsWith('http') ? mediaList[i] : null,
                   timestamp: Date.now(), type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName || 'Cliente', mediaType
                 }
-                io.to(`user_${userId}`).emit('whatsapp_message', mPayload)
+                io.to(`user_${clientId}`).emit('whatsapp_message', mPayload)
                 await db.query(`
                   INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_url, media_type)
                   VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4, $5, $6)
-                `, [userId, customerPhone, mPayload.body, sanitizedDisplayName || 'Cliente', mediaList[i].startsWith('http') ? mediaList[i] : null, mediaType])
+                `, [clientId, customerPhone, mPayload.body, sanitizedDisplayName || 'Cliente', mediaList[i].startsWith('http') ? mediaList[i] : null, mediaType])
 
               } catch (mediaError: any) {
                 logger.error(`Error enviando imagen/documento ${i}:`, { error: mediaError?.message })
@@ -973,14 +1172,14 @@ class WhatsAppWebManager {
               this.cacheSentMessage(sentMsg)
 
               const textPayload = {
-                userId, customerPhone, body: finalText, timestamp: Date.now(),
+                userId: clientId, customerPhone, body: finalText, timestamp: Date.now(),
                 type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName
               }
               await db.query(`
                 INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname)
                 VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)
-              `, [userId, customerPhone, finalText, sanitizedDisplayName])
-              io.to(`user_${userId}`).emit('whatsapp_message', textPayload)
+              `, [clientId, customerPhone, finalText, sanitizedDisplayName])
+              io.to(`user_${clientId}`).emit('whatsapp_message', textPayload)
             }
             
             try {
@@ -989,7 +1188,7 @@ class WhatsAppWebManager {
               // Verificar qué tipos de catálogo existen para este proveedor
               const { rows: types } = await db.query(
                 "SELECT DISTINCT catalog_type FROM products WHERE user_id = $1 AND stock > 0",
-                [userId]
+                [clientId]
               )
               const hasNational = types.some(t => t.catalog_type === 'national')
               const hasGlobal = types.some(t => t.catalog_type === 'global')
@@ -999,7 +1198,7 @@ class WhatsAppWebManager {
 
               // Enviar catálogo nacional si aplica
               if (sendNational) {
-                const pdfPath = await cataloguePDFService.generatePDF(userId, 'national')
+                const pdfPath = await cataloguePDFService.generatePDF(clientId, 'national')
                 const media = MessageMedia.fromFilePath(pdfPath)
                 const captionText = '📦 *CATÁLOGO NACIONAL* (Entrega Inmediata)'
                 this.cacheSentMessage(captionText)
@@ -1009,18 +1208,18 @@ class WhatsAppWebManager {
                 const publicUrl = `http://${process.env.IP_SERVER || 'localhost'}:4000/uploads/catalogs/${fileName}`
 
                 const pdfPayload = {
-                  userId, customerPhone, body: '📄 Catálogo Nacional enviado', timestamp: Date.now(),
+                  userId: clientId, customerPhone, body: '📄 Catálogo Nacional enviado', timestamp: Date.now(),
                   type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName, 
                   mediaType: 'document', mediaUrl: publicUrl
                 }
                 
-                await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_type, media_url) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4, 'document', $5)`, [userId, customerPhone, pdfPayload.body, sanitizedDisplayName, publicUrl])
-                io.to(`user_${userId}`).emit('whatsapp_message', pdfPayload)
+                await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_type, media_url) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4, 'document', $5)`, [clientId, customerPhone, pdfPayload.body, sanitizedDisplayName, publicUrl])
+                io.to(`user_${clientId}`).emit('whatsapp_message', pdfPayload)
               }
 
               // Enviar catálogo global si aplica
               if (sendGlobal) {
-                const pdfPath = await cataloguePDFService.generatePDF(userId, 'global')
+                const pdfPath = await cataloguePDFService.generatePDF(clientId, 'global')
                 const media = MessageMedia.fromFilePath(pdfPath)
                 const captionText = '✈️ *CATÁLOGO GLOBAL* (Importaciones)'
                 this.cacheSentMessage(captionText)
@@ -1030,13 +1229,13 @@ class WhatsAppWebManager {
                 const publicUrl = `http://${process.env.IP_SERVER || 'localhost'}:4000/uploads/catalogs/${fileName}`
 
                 const pdfPayload = {
-                  userId, customerPhone, body: '📄 Catálogo Global enviado', timestamp: Date.now(),
+                  userId: clientId, customerPhone, body: '📄 Catálogo Global enviado', timestamp: Date.now(),
                   type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName, 
                   mediaType: 'document', mediaUrl: publicUrl
                 }
                 
-                await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_type, media_url) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4, 'document', $5)`, [userId, customerPhone, pdfPayload.body, sanitizedDisplayName, publicUrl])
-                io.to(`user_${userId}`).emit('whatsapp_message', pdfPayload)
+                await db.query(`INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname, media_type, media_url) VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4, 'document', $5)`, [clientId, customerPhone, pdfPayload.body, sanitizedDisplayName, publicUrl])
+                io.to(`user_${clientId}`).emit('whatsapp_message', pdfPayload)
               }
 
               // Si el tipo pedido no tiene catálogo, avisar amablemente
@@ -1063,14 +1262,14 @@ class WhatsAppWebManager {
             
             // Sincronizar con el panel y BD
             const textPayload = {
-              userId, customerPhone, body: finalText, timestamp: Date.now(),
+              userId: clientId, customerPhone, body: finalText, timestamp: Date.now(),
               type: 'outgoing', source: 'bot', pushname: sanitizedDisplayName
             }
             await db.query(`
               INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, customer_pushname)
               VALUES ($1, $2, $3, 'outgoing', 'bot', 'sent', $4)
-            `, [userId, customerPhone, finalText, sanitizedDisplayName])
-            io.to(`user_${userId}`).emit('whatsapp_message', textPayload)
+            `, [clientId, customerPhone, finalText, sanitizedDisplayName])
+            io.to(`user_${clientId}`).emit('whatsapp_message', textPayload)
           }
         }
       } catch (error: any) {
@@ -1146,7 +1345,7 @@ class WhatsAppWebManager {
                 // Actualizar retroactivamente la base de datos para corregir la ID de Meta histórica
                 await db.query(
                   "UPDATE whatsapp_messages SET customer_phone = $1 WHERE customer_phone = $2 AND user_id = $3",
-                  [realNum, customerPhone, userId]
+                  [realNum, customerPhone, clientId]
                 )
                 
                 customerPhone = realNum
@@ -1163,7 +1362,7 @@ class WhatsAppWebManager {
             `SELECT DISTINCT customer_phone FROM whatsapp_messages
              WHERE user_id = $1 AND RIGHT(customer_phone, 9) = $2 AND LENGTH(customer_phone) <= 13
              LIMIT 1`,
-            [userId, suffix9]
+            [clientId, suffix9]
           )
           if (existing.rows.length > 0) {
             customerPhone = existing.rows[0].customer_phone
@@ -1176,13 +1375,13 @@ class WhatsAppWebManager {
         const lowerBody = body.toLowerCase().trim()
         if (lowerBody === '!silencio' || lowerBody === 'pausa' || lowerBody === 'stop' || lowerBody === '!pausa') {
           const pauseUntil = Date.now() + (20 * 60 * 1000) // 20 minutos de siesta inteligente
-          await conversationStateService.set(userId, customerPhone, { pausedUntil: pauseUntil })
+          await conversationStateService.set(clientId, customerPhone, { pausedUntil: pauseUntil })
           await client.sendMessage(msg.to, 'Entendido. Me pongo en silencio por 20 minutos. Si me necesitas antes, escribe "continua". 🤫')
           return
         }
 
         if (lowerBody === '!seguir' || lowerBody === '!activar' || lowerBody === 'continua' || lowerBody === 'continuar') {
-          await conversationStateService.set(userId, customerPhone, { pausedUntil: 0 })
+          await conversationStateService.set(clientId, customerPhone, { pausedUntil: 0 })
           await client.sendMessage(msg.to, '¡Recibido! Vuelvo a estar activo ahora mismo. 🤖🚀')
           return
         }
@@ -1190,8 +1389,8 @@ class WhatsAppWebManager {
         // ELIMINADA: Detección automática de intervención (Ahora el bot no se calla solo)
 
         // Notificar al panel de chat
-        io.to(`user_${userId}`).emit('whatsapp_message', {
-          userId,
+        io.to(`user_${clientId}`).emit('whatsapp_message', {
+          userId: clientId,
           customerPhone,
           body: msg.body,
           timestamp: Date.now(),
@@ -1203,7 +1402,7 @@ class WhatsAppWebManager {
         await db.query(`
           INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, sent_at)
           VALUES ($1, $2, $3, 'outgoing', 'whatsapp_web', 'sent', NOW())
-        `, [userId, customerPhone, msg.body])
+        `, [clientId, customerPhone, msg.body])
       }
     })
 
@@ -1219,9 +1418,9 @@ class WhatsAppWebManager {
         try {
           await db.query(
             "UPDATE whatsapp_messages SET status = 'read' WHERE user_id = $1 AND customer_phone = $2 AND direction = 'outgoing' AND status != 'read'",
-            [userId, customerPhone]
+            [clientId, customerPhone]
           )
-          io.to(`user_${userId}`).emit('whatsapp_message_ack', { customerPhone, status: 'read' })
+          io.to(`user_${clientId}`).emit('whatsapp_message_ack', { customerPhone, status: 'read' })
         } catch (e: any) {
           logger.warn(`[DEBUG] Error actualizando ACK: ${e.message}`)
         }
@@ -1229,47 +1428,70 @@ class WhatsAppWebManager {
     })
 
     client.on('authenticated', () => {
-      logger.info(`WhatsApp Web autenticado para ${userId}`)
+      logger.info(`WhatsApp Web autenticado para ${clientId}`)
     })
 
     client.on('auth_failure', (msg) => {
-      logger.error(`Fallo de autenticación para ${userId}: ${msg}`)
+      logger.error(`Fallo de autenticación para ${clientId}: ${msg}`)
       session.status = 'disconnected'
       session.qr = undefined
       session.code = undefined
-      this.sessions.delete(userId)
-      io.to(`user_${userId}`).emit('whatsapp_status', { status: 'disconnected', error: msg })
+      this.stopHeartbeat(clientId)
+      this.sessions.delete(clientId)
+      io.to(`user_${clientId}`).emit('whatsapp_status', { status: 'disconnected', error: msg })
     })
 
     client.on('disconnected', (reason) => {
-      logger.info(`WhatsApp Web desconectado para ${userId}: ${reason}`)
+      logger.info(`WhatsApp Web desconectado para ${clientId}: ${reason}`)
       session.status = 'disconnected'
       session.qr = undefined
       session.code = undefined
-      this.sessions.delete(userId)
-      io.to(`user_${userId}`).emit('whatsapp_status', { status: 'disconnected' })
+      this.stopHeartbeat(clientId)
+      this.sessions.delete(clientId)
+      io.to(`user_${clientId}`).emit('whatsapp_status', { status: 'disconnected' })
     })
 
     // No bloquear el hilo principal
-    client.initialize().catch(err => {
-      logger.error(`Error inicializando cliente para ${userId}: ${err?.stack || err?.message || err}`)
+    client.initialize().then(async () => {
+      // ── FASE 2: BLOQUEO DE RECURSOS PESADOS A NIVEL DE RED ──
+      // Interceptar requests del navegador para bloquear imágenes, CSS, fuentes y videos
+      // Esto reduce el consumo de RAM drásticamente (~60% menos)
+      try {
+        if (client.pupPage) {
+          await client.pupPage.setRequestInterception(true)
+          client.pupPage.on('request', (req: any) => {
+            const resourceType = req.resourceType()
+            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+              req.abort()
+            } else {
+              req.continue()
+            }
+          })
+          logger.info(`[✨ RAM-SAVER] Interceptación de recursos activada para ${clientId}`)
+        }
+      } catch (interceptErr: any) {
+        logger.warn(`[RAM-SAVER] No se pudo activar interceptación para ${clientId}: ${interceptErr.message}`)
+      }
+    }).catch(err => {
+      logger.error(`Error inicializando cliente para ${clientId}: ${err?.stack || err?.message || err}`)
       session.status = 'disconnected'
       session.qr = undefined
       session.code = undefined
-      this.sessions.delete(userId)
+      this.stopHeartbeat(clientId)
+      this.sessions.delete(clientId)
       
       // Auto-reparación: Eliminar caché corrupta si Chrome falla
-      const sessionPath = path.resolve(process.cwd(), '.wwebjs_auth', `session-${userId}`)
+      const sessionPath = path.resolve(process.cwd(), '.wwebjs_auth', `session-${clientId}`)
       if (fs.existsSync(sessionPath)) {
         try {
           fs.rmSync(sessionPath, { recursive: true, force: true })
-          logger.info(`Caché corrupta de WhatsApp limpiada para ${userId}`)
+          logger.info(`Caché corrupta de WhatsApp limpiada para ${clientId}`)
         } catch (rmErr: any) {
-          logger.warn(`No se pudo eliminar completamente la caché de sesión para ${userId}: ${rmErr.message}`)
+          logger.warn(`No se pudo eliminar completamente la caché de sesión para ${clientId}: ${rmErr.message}`)
         }
       }
       
-      io.to(`user_${userId}`).emit('whatsapp_status', { 
+      io.to(`user_${clientId}`).emit('whatsapp_status', { 
          status: 'error', 
          error: 'Error de motor interno. Por favor, reintenta.' 
       })
@@ -1328,11 +1550,11 @@ class WhatsAppWebManager {
     }
   }
 
-  async sendMessage(userId: string, to: string, message: string) {
+  async sendMessage(clientId: string, to: string, message: string) {
     try {
-      const session = await this.getSession(userId)
+      const session = await this.getSession(clientId)
       if (session.status !== 'connected') {
-        logger.warn(`⚠️ WhatsApp Web NO conectado para el proveedor ${userId}. El mensaje no se puede enviar.`)
+        logger.warn(`⚠️ WhatsApp Web NO conectado para el cliente ${clientId}. El mensaje no se puede enviar.`)
         return false
       }
 
@@ -1361,8 +1583,8 @@ class WhatsAppWebManager {
       logger.info(`Mensaje enviado vía WhatsApp Web a ${finalChatId}`)
 
       // --- SINCRONIZACIÓN EN TIEMPO REAL CON EL PANEL ---
-      io.to(`user_${userId}`).emit('whatsapp_message', {
-        userId,
+      io.to(`user_${clientId}`).emit('whatsapp_message', {
+        userId: clientId,
         customerPhone: to.replace(/\D/g, ''),
         body: message,
         timestamp: Date.now(),
@@ -1375,7 +1597,7 @@ class WhatsAppWebManager {
       await db.query(`
         INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, sent_at)
         VALUES ($1, $2, $3, 'outgoing', 'whatsapp_web', 'sent', NOW())
-      `, [userId, to.replace(/\D/g, ''), message])
+      `, [clientId, to.replace(/\D/g, ''), message])
 
       return true
     } catch (error: any) {
@@ -1392,7 +1614,7 @@ class WhatsAppWebManager {
         || errMsg.includes('No LID')
 
       if (isConnectionError) {
-        logger.warn(`⚠️ Error de conexión en WhatsApp Web para ${userId}: ${errMsg}. El mensaje se pondrá en cola para reintento.`)
+        logger.warn(`⚠️ Error de conexión en WhatsApp Web para ${clientId}: ${errMsg}. El mensaje se pondrá en cola para reintento.`)
         // Retornamos falso para que el sistema de enrutamiento sepa que falló y lo ponga en cola
         return false
       }
@@ -1401,11 +1623,11 @@ class WhatsAppWebManager {
     }
   }
 
-  async sendMedia(userId: string, to: string, urlOrPath: string, caption?: string) {
+  async sendMedia(clientId: string, to: string, urlOrPath: string, caption?: string) {
     try {
-      const session = await this.getSession(userId)
+      const session = await this.getSession(clientId)
       if (session.status !== 'connected') {
-        logger.warn(`⚠️ WhatsApp Web NO conectado para el proveedor ${userId}. El archivo multimedia no se puede enviar.`)
+        logger.warn(`⚠️ WhatsApp Web NO conectado para el cliente ${clientId}. El archivo multimedia no se puede enviar.`)
         throw new Error('WhatsApp no está conectado')
       }
 
@@ -1472,8 +1694,8 @@ class WhatsAppWebManager {
       const isPdf = urlOrPath.toLowerCase().endsWith('.pdf')
       const mediaType = isVideo ? 'video' : (isPdf ? 'document' : 'image')
 
-      io.to(`user_${userId}`).emit('whatsapp_message', {
-        userId,
+      io.to(`user_${clientId}`).emit('whatsapp_message', {
+        userId: clientId,
         customerPhone: to.replace(/\D/g, ''),
         body: caption || `[${mediaType.toUpperCase()}]`,
         mediaUrl: urlOrPath.startsWith('http') ? urlOrPath : null,
@@ -1488,7 +1710,7 @@ class WhatsAppWebManager {
       await db.query(`
         INSERT INTO whatsapp_messages (user_id, customer_phone, message_body, direction, source, status, sent_at, media_url, media_type)
         VALUES ($1, $2, $3, 'outgoing', 'whatsapp_web', 'sent', NOW(), $4, $5)
-      `, [userId, to.replace(/\D/g, ''), caption || `[Archivo ${mediaType}]`, urlOrPath.startsWith('http') ? urlOrPath : null, mediaType])
+      `, [clientId, to.replace(/\D/g, ''), caption || `[Archivo ${mediaType}]`, urlOrPath.startsWith('http') ? urlOrPath : null, mediaType])
 
       return true
     } catch (error: any) {
@@ -1501,9 +1723,9 @@ class WhatsAppWebManager {
     }
   }
 
-  async getProfilePicUrl(userId: string, phone: string): Promise<string | null> {
+  async getProfilePicUrl(clientId: string, phone: string): Promise<string | null> {
     try {
-      const session = this.sessions.get(userId)
+      const session = this.sessions.get(clientId)
       if (!session || session.status !== 'connected') return null
 
       const chatId = phone.includes('@') 
@@ -1516,23 +1738,29 @@ class WhatsAppWebManager {
     }
   }
 
-  async disconnect(userId: string) {
-    const session = this.sessions.get(userId)
+  async disconnect(clientId: string) {
+    const session = this.sessions.get(clientId)
     if (session) {
+      this.stopHeartbeat(clientId)
       await session.client.logout()
-      this.sessions.delete(userId)
+      this.sessions.delete(clientId)
     }
   }
 
   async shutdownAll() {
-    for (const [userId, session] of this.sessions.entries()) {
+    // Stop all heartbeats first
+    for (const clientId of this.sessionHeartbeats.keys()) {
+      this.stopHeartbeat(clientId)
+    }
+
+    for (const [clientId, session] of this.sessions.entries()) {
       try {
         if (session.client) {
-          logger.info(`[SHUTDOWN] Destruyendo instancia de Puppeteer para ${userId}...`)
+          logger.info(`[SHUTDOWN] Destruyendo instancia de Puppeteer para ${clientId}...`)
           await session.client.destroy()
         }
       } catch (e) {
-        logger.error(`[SHUTDOWN] Error destruyendo cliente de ${userId}`, e as any)
+        logger.error(`[SHUTDOWN] Error destruyendo cliente de ${clientId}`, e as any)
       }
     }
   }

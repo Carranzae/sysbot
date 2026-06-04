@@ -126,6 +126,14 @@ io.on('connection', (socket) => {
       }
     }
   }
+
+  socket.on('join_user_room', (roomUserId: string) => {
+    if (roomUserId) {
+      socket.join(`user_${roomUserId}`)
+      logger.info(`✅ Socket manual unió a sala: user_${roomUserId}`)
+    }
+  })
+
   socket.on('disconnect', () => logger.info('Socket desconectado'))
 })
 
