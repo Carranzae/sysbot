@@ -35,6 +35,8 @@ export interface DealData {
   amount: number;
   contactId: string;
   stage: string;
+  temperature?: string;
+  notes?: string;
 }
 
 export interface TaskData {

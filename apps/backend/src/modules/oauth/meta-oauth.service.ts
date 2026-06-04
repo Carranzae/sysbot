@@ -383,6 +383,25 @@ export class MetaOauthService {
     const fbOk = Boolean(conn.messengerAccessToken && conn.messengerPageId && conn.messengerConnected);
     const igOk = Boolean(conn.instagramAccessToken && conn.instagramAccountId && conn.instagramConnected);
 
+    if (!fbOk) {
+      return { status: 'red', reason: 'TOKEN_OR_PAGE_MISSING' };
+    }
+
+    // Active Token Validation via Facebook Graph API
+    try {
+      await axios.get(`https://graph.facebook.com/v19.0/me`, {
+        params: { access_token: conn.messengerAccessToken },
+        timeout: 5000,
+      });
+    } catch (err: any) {
+      this.logger.warn(`[MetaOAuth Health] Active token validation failed: ${err.message}`);
+      return { 
+        status: 'red', 
+        reason: 'TOKEN_EXPIRED_OR_INVALID', 
+        details: err.response?.data?.error?.message || err.message 
+      };
+    }
+
     if (fbOk && igOk) {
       return { status: 'green', reason: 'OK' };
     }

@@ -40,6 +40,11 @@ export default function ChannelsPage() {
   const { toast } = useToast()
   const selectedBusiness = useBusinessStore((state) => state.selectedBusiness)
   const [loading, setLoading] = useState(false)
+
+  const webhookUrl = typeof window !== 'undefined'
+    ? `${window.location.origin.replace(':3000', ':3001')}/api/v1/webhooks/meta`
+    : 'http://localhost:3001/api/v1/webhooks/meta'
+
   const [metaConnection, setMetaConnection] = useState<MetaConnection | null>(null)
   const [whatsappWebStatus, setWhatsappWebStatus] = useState('')
   const [whatsappApiStatus, setWhatsappApiStatus] = useState(false)
@@ -477,7 +482,7 @@ export default function ChannelsPage() {
                         Editar
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="bg-[#0a0b10] border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+                    <DialogContent className="bg-[#0a0b10] border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)] max-w-lg">
                       <DialogHeader>
                         <DialogTitle>Configurar Facebook Messenger</DialogTitle>
                         <DialogDescription>
@@ -485,6 +490,16 @@ export default function ChannelsPage() {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
+                        <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl space-y-1.5 text-xs text-blue-200">
+                          <p className="font-bold uppercase tracking-wider text-[10px] text-blue-400">📖 Guía de configuración:</p>
+                          <ol className="list-decimal pl-4 space-y-1">
+                            <li>Ve a <a href="https://developers.facebook.com/" target="_blank" rel="noopener noreferrer" className="underline text-blue-300">Facebook Developers</a> y crea una app.</li>
+                            <li>Agrega el producto <b>Messenger</b> y asocia tu Página.</li>
+                            <li>Genera el <b>Access Token</b> de la página y pégalo abajo.</li>
+                            <li>Configura el Webhook apuntando a: <code className="bg-slate-900/60 px-1 py-0.5 rounded text-[10px] font-mono select-all">{webhookUrl}</code></li>
+                            <li>Usa tu <b>Verify Token</b> elegido en ambos lados para validar.</li>
+                          </ol>
+                        </div>
                         <div className="space-y-2">
                           <Label>Page ID</Label>
                           <Input
@@ -531,7 +546,7 @@ export default function ChannelsPage() {
                     Conectar con Messenger
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="bg-[#0a0b10] border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+                <DialogContent className="bg-[#0a0b10] border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)] max-w-lg">
                   <DialogHeader>
                     <DialogTitle>Configurar Facebook Messenger</DialogTitle>
                     <DialogDescription>
@@ -539,6 +554,16 @@ export default function ChannelsPage() {
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl space-y-1.5 text-xs text-blue-200">
+                      <p className="font-bold uppercase tracking-wider text-[10px] text-blue-400">📖 Guía de configuración:</p>
+                      <ol className="list-decimal pl-4 space-y-1">
+                        <li>Ve a <a href="https://developers.facebook.com/" target="_blank" rel="noopener noreferrer" className="underline text-blue-300">Facebook Developers</a> y crea una app.</li>
+                        <li>Agrega el producto <b>Messenger</b> y asocia tu Página.</li>
+                        <li>Genera el <b>Access Token</b> de la página y pégalo abajo.</li>
+                        <li>Configura el Webhook apuntando a: <code className="bg-slate-900/60 px-1 py-0.5 rounded text-[10px] font-mono select-all">{webhookUrl}</code></li>
+                        <li>Usa tu <b>Verify Token</b> elegido en ambos lados para validar.</li>
+                      </ol>
+                    </div>
                     <div className="space-y-2">
                       <Label>Page ID</Label>
                       <Input
@@ -730,12 +755,21 @@ export default function ChannelsPage() {
                   {telegramBotStatus ? 'Gestionar Bot' : 'Conectar Telegram Bot'}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="bg-[#0a0b10] border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+              <DialogContent className="bg-[#0a0b10] border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)] max-w-lg">
                 <DialogHeader>
                   <DialogTitle>Configurar Telegram Bot</DialogTitle>
                   <DialogDescription>Ingresa el Token de tu bot obtenido de @BotFather.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
+                  <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl space-y-1.5 text-xs text-blue-200">
+                    <p className="font-bold uppercase tracking-wider text-[10px] text-blue-400">📖 Guía de configuración:</p>
+                    <ol className="list-decimal pl-4 space-y-1">
+                      <li>Abre Telegram y busca a <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="underline text-blue-300">@BotFather</a>.</li>
+                      <li>Envía <code className="bg-slate-900/60 px-1 py-0.5 rounded text-[10px] font-mono">/newbot</code> y sigue las instrucciones para crear tu bot.</li>
+                      <li>Copia el <b>HTTP API Token</b> generado y pégalo abajo.</li>
+                      <li>El sistema registrará el webhook de forma automática tras guardar.</li>
+                    </ol>
+                  </div>
                   <div className="space-y-2">
                     <Label>Bot Token</Label>
                     <Input

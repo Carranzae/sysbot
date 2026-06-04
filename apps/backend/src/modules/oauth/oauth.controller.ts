@@ -2,13 +2,40 @@ import { BadRequestException, Body, Controller, Get, Post, Query, Res, Param } f
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { MetaOauthService } from './meta-oauth.service';
+import { GoogleOauthService } from './google-oauth.service';
 
 @Controller('oauth')
 export class OauthController {
   constructor(
     private readonly metaOauth: MetaOauthService,
+    private readonly googleOauth: GoogleOauthService,
     private readonly config: ConfigService,
   ) {}
+
+  @Get('google/start')
+  startGoogle(
+    @Query('businessId') businessId: string,
+    @Res() res: Response,
+  ) {
+    if (!businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+    const url = this.googleOauth.buildAuthUrl(businessId);
+    return res.redirect(url);
+  }
+
+  @Get('google/callback')
+  async callbackGoogle(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    const result = await this.googleOauth.handleCallback(code, state);
+
+    const frontendBase = this.config.get<string>('FRONTEND_PUBLIC_URL') || 'http://localhost:3000';
+    const redirect = `${frontendBase}/appointments?connected=google&businessId=${encodeURIComponent(result.businessId)}`;
+    return res.redirect(redirect);
+  }
 
   @Get(':platform/start')
   start(

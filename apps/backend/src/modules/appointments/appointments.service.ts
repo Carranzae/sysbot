@@ -1,12 +1,15 @@
 import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { PlanService } from '../plan/plan.service';
+import { GoogleCalendarService } from './google-calendar.service';
+import axios from 'axios';
 
 @Injectable()
 export class AppointmentsService {
   constructor(
     private prisma: PrismaService,
     private planService: PlanService,
+    private googleCalendar: GoogleCalendarService,
   ) {}
 
   /**
@@ -247,6 +250,21 @@ export class AppointmentsService {
 
     console.log(`[AppointmentsService] ✅ Sin conflictos, creando cita en BD...`);
     
+    // Try to create Google Calendar Event
+    let finalNotes = data.notes || '';
+    try {
+      const eventId = await this.googleCalendar.createEvent(businessId, {
+        ...data,
+        appointmentDate,
+        duration,
+      });
+      if (eventId) {
+        finalNotes = this.googleCalendar.embedEventId(data.notes || '', eventId);
+      }
+    } catch (calErr: any) {
+      console.error(`[AppointmentsService] Error al crear evento en Google Calendar: ${calErr.message}`);
+    }
+
     try {
       const appointment = await this.prisma.appointment.create({
         data: {
@@ -257,7 +275,7 @@ export class AppointmentsService {
           appointmentDate,
           duration,
           status: data.status || 'PENDING',
-          notes: data.notes || null,
+          notes: finalNotes || null,
           specialist: data.specialist || null,
           specialty: data.specialty || null,
           origin: data.origin || 'BOT',
@@ -308,13 +326,198 @@ export class AppointmentsService {
   }
 
   async update(id: string, data: any) {
-    return this.prisma.appointment.update({
+    const existing = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: { business: true }
+    });
+
+    if (!existing) {
+      throw new BadRequestException('La cita no existe');
+    }
+
+    let finalNotes = data.notes !== undefined ? data.notes : existing.notes;
+    let eventId = this.googleCalendar.extractEventId(existing.notes);
+
+    if (eventId) {
+      // Sync update to Google Calendar
+      try {
+        const mergedAppointment = {
+          ...existing,
+          ...data,
+          notes: finalNotes,
+        };
+        await this.googleCalendar.updateEvent(existing.businessId, eventId, mergedAppointment);
+      } catch (calErr: any) {
+        console.error(`[AppointmentsService] Error al actualizar Google Calendar: ${calErr.message}`);
+      }
+    } else {
+      // If there wasn't an event, try to create one
+      try {
+        const mergedAppointment = {
+          ...existing,
+          ...data,
+          notes: finalNotes,
+        };
+        const newEventId = await this.googleCalendar.createEvent(existing.businessId, mergedAppointment);
+        if (newEventId) {
+          finalNotes = this.googleCalendar.embedEventId(finalNotes, newEventId);
+          data.notes = finalNotes; // Inject into data to be saved below
+        }
+      } catch (calErr: any) {
+        console.error(`[AppointmentsService] Error al crear Google Calendar: ${calErr.message}`);
+      }
+    }
+
+    const updated = await this.prisma.appointment.update({
       where: { id },
       data,
     });
+
+    if (existing && existing.business.industryType === 'CLINIC') {
+      // 1. Sincronizar con el EHR de Contact.metadata
+      await this.syncWithEHR(existing.businessId, existing.customerPhone, updated.id, updated.status);
+
+      // 2. Si cambia a CANCELLED, notificar lista de espera
+      if (data.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
+        await this.triggerSmartWaitlistNotification(existing);
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Sincroniza y almacena el estado e historial clínico en el expediente del paciente (Contact.metadata)
+   */
+  async syncWithEHR(businessId: string, customerPhone: string, appointmentId: string, status: string): Promise<void> {
+    try {
+      const contact = await this.prisma.contact.findFirst({
+        where: { phone: customerPhone, businessId }
+      });
+
+      if (contact) {
+        let metadataObj = contact.metadata ? (typeof contact.metadata === 'string' ? JSON.parse(contact.metadata) : contact.metadata) as any : {};
+        if (!metadataObj.ehrHistory) {
+          metadataObj.ehrHistory = [];
+        }
+        metadataObj.ehrHistory.push({
+          appointmentId,
+          status,
+          updatedAt: new Date(),
+          action: `Actualización de cita médica a estado: ${status}`,
+        });
+
+        await this.prisma.contact.update({
+          where: { id: contact.id },
+          data: { metadata: metadataObj }
+        });
+        console.log(`[EHR Sync] Sincronización exitosa con expediente del paciente ${contact.phone}`);
+
+        // Sincronización de regreso (Outbound Sync back to Clinic HIS Webhook)
+        const business = await this.prisma.business.findUnique({
+          where: { id: businessId },
+          select: { paymentWebhookUrl: true }
+        });
+
+        if (business?.paymentWebhookUrl) {
+          console.log(`[EHR Outbound Webhook] Sincronizando estado ${status} de cita ${appointmentId} al HIS de la clínica: ${business.paymentWebhookUrl}`);
+          try {
+            await axios.post(business.paymentWebhookUrl, {
+              event: 'appointment.status_updated',
+              appointmentId,
+              customerPhone,
+              status,
+              updatedAt: new Date()
+            }, {
+              headers: { 'Content-Type': 'application/json' }
+            });
+            console.log(`[EHR Outbound Webhook] Webhook enviado con éxito.`);
+          } catch (webhookErr: any) {
+            console.error(`[EHR Outbound Webhook] Falló envío de webhook al HIS: ${webhookErr.message}`);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[EHR Sync] Error al sincronizar expediente: ${err.message}`);
+    }
+  }
+
+  /**
+   * Dispara notificaciones automatizadas a la lista de espera al liberarse un cupo
+   */
+  private async triggerSmartWaitlistNotification(appointment: any): Promise<void> {
+    console.log(`[Waitlist] Disparando lista de espera inteligente para la cita cancelada ${appointment.id}`);
+    
+    // 1. Encontrar contactos con el tag 'LISTA_DE_ESPERA'
+    const matchingContacts = await this.prisma.contact.findMany({
+      where: {
+        businessId: appointment.businessId,
+        tags: {
+          some: {
+            label: {
+              in: ['LISTA_DE_ESPERA', 'lista_de_espera', 'waitlist', 'Waitlist']
+            }
+          }
+        }
+      },
+      include: {
+        tags: true
+      }
+    });
+
+    if (matchingContacts.length === 0) {
+      console.log(`[Waitlist] No hay pacientes en lista de espera para el negocio ${appointment.businessId}`);
+      return;
+    }
+
+    // Filtrar contactos que coincidan con la especialidad (si está guardada en sus tags o notas)
+    const specialty = appointment.specialty ? appointment.specialty.toLowerCase() : '';
+    const candidates = matchingContacts.filter(c => {
+      return c.tags.some(t => t.label.toLowerCase().includes(specialty) || t.label.toLowerCase() === 'lista_de_espera');
+    });
+
+    if (candidates.length === 0) {
+      console.log(`[Waitlist] No hay pacientes en la lista de espera con tag específico para la especialidad ${specialty}`);
+      return;
+    }
+
+    console.log(`[Waitlist] Encontrados ${candidates.length} candidatos para ocupar el turno de ${appointment.specialty}`);
+
+    // Enviar mensaje automático (registrándolo en la tabla Message para que figure en el panel del admin)
+    for (const cand of candidates.slice(0, 3)) { // Notificar a los 3 primeros
+      const notificationContent = `¡Hola ${cand.name || 'Paciente'}! Se ha liberado un turno para la especialidad de ${appointment.specialty} el día ${appointment.appointmentDate.toLocaleDateString('es-ES')} a las ${appointment.appointmentDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}. Si deseas tomar este turno, responde *TOMAR TURNO* inmediatamente.`;
+      
+      await this.prisma.message.create({
+        data: {
+          businessId: appointment.businessId,
+          direction: 'OUTBOUND',
+          content: notificationContent,
+          from: '',
+          to: cand.phone,
+          platform: 'WHATSAPP_WEB',
+          status: 'SENT',
+        }
+      });
+      console.log(`[Waitlist] Notificación de lista de espera enviada al contacto ${cand.phone}`);
+    }
   }
 
   async remove(id: string) {
+    const existing = await this.prisma.appointment.findUnique({
+      where: { id },
+    });
+
+    if (existing) {
+      const eventId = this.googleCalendar.extractEventId(existing.notes);
+      if (eventId) {
+        try {
+          await this.googleCalendar.deleteEvent(existing.businessId, eventId);
+        } catch (calErr: any) {
+          console.error(`[AppointmentsService] Error al eliminar Google Calendar: ${calErr.message}`);
+        }
+      }
+    }
+
     return this.prisma.appointment.delete({
       where: { id },
     });
