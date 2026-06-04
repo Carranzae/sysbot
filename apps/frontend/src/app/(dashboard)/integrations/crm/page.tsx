@@ -33,6 +33,7 @@ const crmProviders = [
   { value: 'ZOHO', label: 'Zoho CRM' },
   { value: 'PIPEDRIVE', label: 'Pipedrive' },
   { value: 'MONDAY', label: 'Monday.com' },
+  { value: 'GOOGLE_SHEETS', label: 'Google Sheets' },
   { value: 'CUSTOM', label: 'CRM Personalizado' },
 ]
 
@@ -85,6 +86,7 @@ export default function CRMPage() {
     apiSecret: '',
     baseUrl: '',
     pageId: '', // Para Meta CRM
+    spreadsheetId: '', // Para Google Sheets
     syncEnabled: true,
     syncDirection: 'BIDIRECTIONAL' as 'TO_CRM' | 'FROM_CRM' | 'BIDIRECTIONAL',
   })
@@ -149,6 +151,7 @@ export default function CRMPage() {
         apiSecret: crmConnection.apiSecret || '',
         baseUrl: crmConnection.baseUrl || '',
         pageId: crmConnection.config?.pageId || '',
+        spreadsheetId: crmConnection.config?.spreadsheetId || '',
         syncEnabled: crmConnection.syncEnabled ?? true,
         syncDirection: crmConnection.syncDirection || 'BIDIRECTIONAL',
       })
@@ -170,6 +173,9 @@ export default function CRMPage() {
       if (selectedProvider === 'META_CRM') {
         connectionData.accessToken = formData.accessToken
         connectionData.config = { pageId: formData.pageId }
+      } else if (selectedProvider === 'GOOGLE_SHEETS') {
+        connectionData.accessToken = formData.accessToken
+        connectionData.config = { spreadsheetId: formData.spreadsheetId }
       } else if (selectedProvider === 'HUBSPOT' || selectedProvider === 'SALESFORCE') {
         connectionData.accessToken = formData.accessToken
         connectionData.refreshToken = formData.refreshToken
@@ -508,6 +514,37 @@ export default function CRMPage() {
                                   Facebook Developers
                                 </a>
                                 .
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Google Sheets */}
+                        {selectedProvider === 'GOOGLE_SHEETS' && (
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <Label>Spreadsheet ID (ID de la Hoja de Cálculo)</Label>
+                              <Input
+                                value={formData.spreadsheetId}
+                                onChange={(e) => setFormData({ ...formData, spreadsheetId: e.target.value })}
+                                placeholder="1a2b3c4d5e6f7g8h9i0j..."
+                                required
+                              />
+                              <p className="text-xs text-gray-500">
+                                Copia el ID de la URL de tu Google Sheet (entre /d/ y /edit).
+                              </p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Google Service Account JSON (Credenciales de Cuenta de Servicio)</Label>
+                              <textarea
+                                className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                                value={formData.accessToken}
+                                onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })}
+                                placeholder='{ "type": "service_account", "project_id": ... }'
+                                required
+                              />
+                              <p className="text-xs text-gray-500">
+                                Pega el contenido completo del archivo JSON de tu Cuenta de Servicio. Recuerda compartir tu Hoja de Cálculo con el correo electrónico de esta Cuenta de Servicio (client_email) con permisos de Editor.
                               </p>
                             </div>
                           </div>

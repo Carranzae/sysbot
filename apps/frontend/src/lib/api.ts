@@ -333,3 +333,32 @@ export const livechatApi = {
   getPauseStatuses: (phones: string[]) => api.post('/livechat/chats/pause-statuses', { phones }),
 }
 
+// ============== CRM CALL CENTER API ==============
+export const crmCallApi = {
+  getLogs: () => api.get('/crm-call/logs'),
+  getAnalytics: () => api.get('/crm-call/analytics'),
+  submitSurvey: (callId: string, score: number, feedback?: string) =>
+    api.post(`/crm-call/survey/${callId}`, { score, feedback }),
+}
+
+// ============== CLINIC MANAGEMENT API ==============
+export const clinicApi = {
+  getContracts: (businessId: string) => api.get(`/v1/clinic/contracts?businessId=${businessId}`),
+  configureContract: (businessId: string, data: any) => api.post(`/v1/clinic/contracts?businessId=${businessId}`, data),
+  getDoctorsWallet: (businessId: string) => api.get(`/v1/clinic/doctors/wallet?businessId=${businessId}`),
+  registerInvoice: (businessId: string, data: any) => api.post(`/v1/integrations/invoices?businessId=${businessId}`, data),
+  getInventory: (businessId: string) => api.get(`/v1/clinic/inventory?businessId=${businessId}`),
+  configureInventoryItem: (businessId: string, data: any) => api.post(`/v1/clinic/inventory?businessId=${businessId}`, data),
+  getProcedureSupplies: (businessId: string) => api.get(`/v1/clinic/supplies?businessId=${businessId}`),
+  configureProcedureSupplies: (businessId: string, data: any) => api.post(`/v1/clinic/supplies?businessId=${businessId}`, data),
+  deductInventory: (businessId: string, procedureName: string) => api.post(`/v1/inventory/deduct?businessId=${businessId}`, { procedureName }),
+  getPatientDocuments: (businessId: string, phone: string) => api.get(`/v1/patients/documents?businessId=${businessId}&customerPhone=${phone}`),
+  getAvailableSlots: (businessId: string, date: string, specialty: string, duration = 60) => 
+    api.get(`/v1/slots/disponibles?businessId=${businessId}&date=${date}&specialty=${specialty}&duration=${duration}`),
+  registerAppointmentFromIntegration: (businessId: string, data: any) => 
+    api.post(`/v1/integrations/appointments?businessId=${businessId}`, data),
+  notifyLabResult: (businessId: string, fileId: string) => 
+    api.post(`/v1/clinic/notify-lab?businessId=${businessId}`, { fileId }),
+}
+
+

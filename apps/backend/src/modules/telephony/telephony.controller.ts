@@ -26,6 +26,8 @@ export class TelephonyController {
   @Post('status-callback')
   async handleStatusCallback(@Body() body: any) {
     console.log('Call status callback:', body);
+    const { CallSid, CallDuration, CallStatus } = body;
+    await this.twilioService.handleCallEnded(CallSid, CallDuration, CallStatus);
     return { status: 'received' };
   }
 }

@@ -8,6 +8,7 @@ import { AiModule } from '../ai/ai.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { DatabaseModule } from '../database/database.module';
 import { WebsocketModule } from '../websocket/websocket.module';
+import { SwarmModule } from '../swarm/swarm.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { WebsocketModule } from '../websocket/websocket.module';
     WebsocketModule,
     forwardRef(() => AiModule),
     forwardRef(() => WhatsappModule),
+    SwarmModule,
   ],
   providers: [
     MetaService,

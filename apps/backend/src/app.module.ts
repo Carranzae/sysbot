@@ -49,6 +49,7 @@ import { VoiceCloningModule } from './modules/voice/voice-cloning.module';
 import { CrmCallModule } from './modules/crm-call/crm-call.module';
 import { SelfStudyModule } from './modules/self-study/self-study.module';
 import { PaymentRevisorModule } from './modules/payment-revisor/payment-revisor.module';
+import { ClinicModule } from './modules/clinic/clinic.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { PaymentRevisorModule } from './modules/payment-revisor/payment-revisor.
     CrmCallModule,
     SelfStudyModule,
     PaymentRevisorModule,
+    ClinicModule,
   ],
   providers: [
     {

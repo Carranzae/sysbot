@@ -14,6 +14,7 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
 import { AudioModule } from '../audio/audio.module';
 import { BusinessModule } from '../business/business.module';
 import { WebsocketModule } from '../websocket/websocket.module';
+import { SwarmModule } from '../swarm/swarm.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { WebsocketModule } from '../websocket/websocket.module';
     AudioModule,
     forwardRef(() => BusinessModule),
     WebsocketModule,
+    SwarmModule,
   ],
   providers: [WhatsappService, WhatsappWebService],
   controllers: [WhatsappController],

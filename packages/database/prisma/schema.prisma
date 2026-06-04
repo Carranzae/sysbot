@@ -173,6 +173,11 @@ model Business {
   callLogs               CallLog[]
   dailyLearningLogs      DailyLearningLog[]
   securityBlocklists     SecurityBlocklist[]
+  medicosConfigContracts MedicosConfigContract[]
+  medicoWallets          MedicoWallet[]
+  medicalInventoryItems  MedicalInventoryItem[]
+  medicalProcedureSupplies MedicalProcedureSupplies[]
+  patientEhrRecords      PatientEhrRecord[]
 
   @@map("businesses")
 }
@@ -1548,5 +1553,77 @@ enum BlockSeverity {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+// 🩺 Liquidación de Comisiones Médicas
+model MedicosConfigContract {
+  id                 String   @id @default(uuid())
+  medicoId           String
+  porcentajeComision Float    @default(0.0)
+  montoFijo          Float    @default(0.0)
+  businessId         String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("medicos_config_contracts")
+}
+
+model MedicoWallet {
+  id         String   @id @default(uuid())
+  medicoId   String
+  balance    Float    @default(0.0)
+  businessId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("medico_wallets")
+}
+
+// 📦 Inventario de Insumos Médicos para Suturas y Procedimientos
+model MedicalInventoryItem {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  sku        String
+  stock      Int      @default(0)
+  minStock   Int      @default(5)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, sku])
+  @@map("medical_inventory_items")
+}
+
+model MedicalProcedureSupplies {
+  id            String   @id @default(uuid())
+  businessId    String
+  procedureName String   // ej. "Sutura"
+  itemSku       String
+  quantity      Int      @default(1)
+  business      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, procedureName, itemSku])
+  @@map("medical_procedure_supplies")
+}
+
+model PatientEhrRecord {
+  id         String   @id @default(uuid())
+  contactId  String
+  businessId String
+  specialty  String   // "DENTAL", "VISION", "OBSTETRICS", "DERMATOLOGY", "PEDIATRICS"
+  data       Json     // Specialty-specific JSON payload
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, contactId, specialty])
+  @@index([businessId])
+  @@index([contactId])
+  @@map("patient_ehr_records")
 }
 

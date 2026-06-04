@@ -48,7 +48,7 @@ export class AIOrchestrator {
 
       if (!provider) {
         const { rows } = await db.query(
-          'SELECT name, email, phone, logistics_config, payment_config FROM users WHERE id = $1',
+          'SELECT name, email, phone, logistics_config, payment_config, business_id FROM users WHERE id = $1',
           [userId]
         )
         provider = rows[0]

@@ -15,7 +15,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  const port = process.env.PORT || 3003;
+  const port = process.env.PORT || 3001;
   const apiPrefix = configService.get('API_PREFIX') || 'api/v1';
   const environment = configService.get('NODE_ENV') || 'development';
   

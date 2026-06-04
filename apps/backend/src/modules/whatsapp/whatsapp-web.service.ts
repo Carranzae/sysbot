@@ -17,6 +17,7 @@ import { rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { EvidenceType } from '@prisma/client';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
+import { SwarmOrchestratorService } from '../swarm/swarm-orchestrator.service';
 
 @Injectable()
 export class WhatsappWebService implements OnModuleInit {
@@ -42,6 +43,7 @@ export class WhatsappWebService implements OnModuleInit {
     private sttService: STTService,
     private ttsService: TTSService,
     private websocketGateway: WebsocketGateway,
+    private swarmService: SwarmOrchestratorService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -1204,7 +1206,14 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
 
     // --- INDUSTRIALIZACIÓN: Delegar a cola persistente (BullMQ) ---
     // Esto permite procesamiento en paralelo de alta calidad y persistencia ante reinicios
-    await this.jobsService.queueWhatsappMessage(businessId, m);
+    try {
+      await this.jobsService.queueWhatsappMessage(businessId, m);
+    } catch (err: any) {
+      console.warn(`[WhatsApp Web] Fallback a procesamiento directo. JobsService falló al encolar: ${err.message}`);
+      await this.processSingleMessage(businessId, m).catch(innerErr => {
+        console.error(`[WhatsApp Web] Error en procesamiento de fallback síncrono:`, innerErr);
+      });
+    }
   }
 
   public async processSingleMessage(businessId: string, m: any) {
@@ -1769,16 +1778,50 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     // Generate AI response with concurrency control
     console.log(`[WhatsApp Web] Processing message from ${from}: "${effectiveText}"`);
     try {
+      // 1. Swarm Safety check first (Safety Guard & Anti-Injection)
+      let swarmBlocked = false;
+      let safetyResponse = '';
+      try {
+        const safetyCheck = await this.swarmService.processIncomingMessage(businessId, from, '127.0.0.1', effectiveText);
+        if (!safetyCheck.allowed) {
+          swarmBlocked = true;
+          safetyResponse = safetyCheck.responseMessage;
+        }
+      } catch (err: any) {
+        console.error('[WhatsApp Web] Swarm check failed or blocked target:', err.message);
+        if (err.status === 403 || err.statusCode === 403 || err.message.includes('Forbidden') || err.message.includes('restringido')) {
+          await this.sendMessage(businessId, fromJid, 'Acceso denegado por seguridad perimetral.');
+          return;
+        }
+      }
+
+      if (swarmBlocked) {
+        await this.sendMessage(businessId, fromJid, safetyResponse || 'Acceso denegado.');
+        return;
+      }
+
       const aiResponsePromise = this.aiService.generateResponse(businessId, effectiveText, from, {
         platform: 'WHATSAPP_WEB',
         senderId: from,
       });
       const aiResponse = await aiResponsePromise;
 
-      console.log(`[WhatsApp Web] AI response generated: "${aiResponse.message.substring(0, 50)}..."`);
+      // 2. Swarm Tone modulation post-response
+      let finalMessage = aiResponse.message;
+      try {
+        const toneService = (this.swarmService as any).peruvianTone;
+        if (toneService) {
+          const profile = toneService.detectCustomerProfile(effectiveText, { name: from });
+          finalMessage = toneService.modulateResponse(aiResponse.message, profile, from);
+        }
+      } catch (err: any) {
+        console.error('[WhatsApp Web] Swarm modulation failed, using raw AI response:', err.message);
+      }
+
+      console.log(`[WhatsApp Web] AI response generated and modulated: "${finalMessage.substring(0, 50)}..."`);
 
       // Send text response (usar fromJid que tiene el formato completo)
-      this.sendMessage(businessId, fromJid, aiResponse.message).catch(error => {
+      this.sendMessage(businessId, fromJid, finalMessage).catch(error => {
         console.error(`[WhatsApp Web] Error sending message to ${from}:`, error);
       });
 
@@ -1796,7 +1839,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         const hasAudioResponse = await this.planService.hasFeatureAccess(businessId, 'hasAudioResponses');
         if (hasAudioResponse) {
           try {
-            const audioBuffer = await this.ttsService.generateSpeechBuffer(aiResponse.message);
+            const audioBuffer = await this.ttsService.generateSpeechBuffer(finalMessage);
             if (audioBuffer) {
               const sock = this.sockets.get(businessId);
               if (sock) {

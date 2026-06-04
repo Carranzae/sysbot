@@ -3,6 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AiService } from '../../ai/ai.service';
 import { MetaService } from '../meta.service';
 import { WebsocketGateway } from '../../websocket/websocket.gateway';
+import { SwarmOrchestratorService } from '../../swarm/swarm-orchestrator.service';
 import axios from 'axios';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class MessengerService {
     private aiService: AiService,
     private metaService: MetaService,
     private websocketGateway: WebsocketGateway,
+    private swarmService: SwarmOrchestratorService,
   ) {}
 
   async handleIncomingMessage(businessId: string, event: any) {
@@ -47,6 +49,32 @@ export class MessengerService {
     // Emitir mensaje entrante por WebSocket
     this.websocketGateway.emitNewMessage(businessId, savedMessage);
 
+    // 1. Swarm Safety check first (Safety Guard & Anti-Injection)
+    let swarmBlocked = false;
+    let safetyResponse = '';
+    try {
+      const safetyCheck = await this.swarmService.processIncomingMessage(businessId, senderId, '127.0.0.1', messageText || '');
+      if (!safetyCheck.allowed) {
+        swarmBlocked = true;
+        safetyResponse = safetyCheck.responseMessage;
+      }
+    } catch (err: any) {
+      this.logger.error(`[Messenger Swarm] Safety check failed or blocked: ${err.message}`);
+      if (err.status === 403 || err.statusCode === 403 || err.message.includes('Forbidden') || err.message.includes('restringido')) {
+        try {
+          await this.sendMessageToMessenger(businessId, senderId, 'Acceso denegado por seguridad perimetral.');
+        } catch (sendErr) {}
+        return savedMessage;
+      }
+    }
+
+    if (swarmBlocked) {
+      try {
+        await this.sendMessageToMessenger(businessId, senderId, safetyResponse || 'Acceso denegado.');
+      } catch (sendErr) {}
+      return savedMessage;
+    }
+
     // Generar respuesta con AI
     try {
       const response = await this.aiService.generateResponse(
@@ -59,11 +87,23 @@ export class MessengerService {
         },
       );
 
-      this.logger.log(`[Messenger] AI response generated: ${response.message.substring(0, 50)}...`);
+      // 2. Swarm Tone modulation post-response
+      let finalMessage = response.message;
+      try {
+        const toneService = (this.swarmService as any).peruvianTone;
+        if (toneService) {
+          const profile = toneService.detectCustomerProfile(messageText || '', { name: senderId });
+          finalMessage = toneService.modulateResponse(response.message, profile, senderId);
+        }
+      } catch (err: any) {
+        this.logger.error(`[Messenger Swarm] Modulation failed: ${err.message}`);
+      }
+
+      this.logger.log(`[Messenger] AI response generated: ${finalMessage.substring(0, 50)}...`);
 
       // ✅ ENVIAR RESPUESTA REAL A MESSENGER
       try {
-        await this.sendMessageToMessenger(businessId, senderId, response.message);
+        await this.sendMessageToMessenger(businessId, senderId, finalMessage);
         this.logger.log(`[Messenger] ✅ Response sent successfully to ${senderId}`);
 
         // Guardar respuesta saliente en BD
@@ -71,7 +111,7 @@ export class MessengerService {
           data: {
             businessId,
             direction: 'OUTBOUND',
-            content: response.message,
+            content: finalMessage,
             from: '',
             to: senderId,
             platform: 'MESSENGER',
@@ -86,14 +126,14 @@ export class MessengerService {
         
         // Fallback: intentar con MESSAGE_TAG si RESPONSE falla (fuera de ventana de 24h)
         try {
-          await this.sendMessageToMessengerWithTag(businessId, senderId, response.message);
+          await this.sendMessageToMessengerWithTag(businessId, senderId, finalMessage);
           this.logger.log(`[Messenger] ✅ Fallback MESSAGE_TAG sent successfully`);
           
           await this.prisma.message.create({
             data: {
               businessId,
               direction: 'OUTBOUND',
-              content: response.message,
+              content: finalMessage,
               from: '',
               to: senderId,
               platform: 'MESSENGER',

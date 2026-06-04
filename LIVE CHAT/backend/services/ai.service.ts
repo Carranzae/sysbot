@@ -1,6 +1,7 @@
 import Groq from 'groq-sdk'
 import { db } from '../database/db'
 import { logger } from '../api/utils/logger'
+import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
 import * as dotenv from 'dotenv'
@@ -135,6 +136,37 @@ export const keyManager = new GroqKeyManager()
 
 export class AIService {
   async chat(message: string, history: any[] = [], providerId?: string, customerPhone?: string, isManagementMode = false, customSystemPrompt?: string) {
+    if (providerId && !isManagementMode) {
+      try {
+        const { rows } = await db.query('SELECT business_id FROM users WHERE id = $1', [providerId]);
+        const businessId = rows[0]?.business_id;
+        
+        if (businessId) {
+          logger.info(`[AIService] Redirigiendo chat a Systbot backend para businessId: ${businessId}`);
+          const systbotApiUrl = process.env.SYSTBOT_API_URL || process.env.VITE_API_URL || 'http://localhost:3001';
+          const cleanUrl = systbotApiUrl.replace(/\/api\/v1\/?$/, '');
+          
+          const response = await axios.post(`${cleanUrl}/api/v1/ai/bot-response`, {
+            businessId,
+            message,
+            customerPhone,
+          }, {
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          });
+          
+          if (response.data && response.data.message) {
+            logger.info(`[AIService] Respuesta exitosa de Systbot AI`);
+            return { text: response.data.message };
+          }
+        }
+      } catch (err: any) {
+        logger.error(`[AIService] Error al conectar con Systbot backend AI: ${err.message}. Continuando con IA local...`);
+      }
+    }
+
     try {
       const instanceData = keyManager.getAvailableInstance()
       if (!instanceData) {

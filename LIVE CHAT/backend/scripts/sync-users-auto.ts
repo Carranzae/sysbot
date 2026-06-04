@@ -58,16 +58,24 @@ export async function syncUsersFromSysbot(): Promise<void> {
         password VARCHAR(255),
         role VARCHAR(50) DEFAULT 'user',
         phone VARCHAR(50),
+        business_id VARCHAR(255),
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
 
+    // Ensure business_id column exists
+    await livechatPool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id VARCHAR(255)
+    `);
+
     // Read users from Sysbot (copilot_expert/railway) - the table is called "users" in Prisma with camelCase columns
+    // We join businesses to extract b.id as businessId
     const { rows: sysbotUsers } = await sysbotPool.query(`
-      SELECT id, "firstName", "lastName", email, password, role::text, phone 
-      FROM "users" 
-      WHERE role::text IN ('SUPER_ADMIN', 'ADMIN', 'OWNER', 'PROVIDER', 'BUSINESS_OWNER')
+      SELECT u.id, u."firstName", u."lastName", u.email, u.password, u.role::text, u.phone, b.id as "businessId"
+      FROM "users" u
+      LEFT JOIN "businesses" b ON b."ownerId" = u.id
+      WHERE u.role::text IN ('SUPER_ADMIN', 'ADMIN', 'OWNER', 'PROVIDER', 'BUSINESS_OWNER')
     `);
 
     if (sysbotUsers.length === 0) {
@@ -84,8 +92,8 @@ export async function syncUsersFromSysbot(): Promise<void> {
         const livechatRole = user.role?.toLowerCase() || 'user';
 
         await livechatPool.query(
-          `INSERT INTO users (id, name, email, password_hash, password, role, phone, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+          `INSERT INTO users (id, name, email, password_hash, password, role, phone, business_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
            ON CONFLICT (email) DO UPDATE SET
              id = EXCLUDED.id,
              name = EXCLUDED.name,
@@ -93,8 +101,9 @@ export async function syncUsersFromSysbot(): Promise<void> {
              password = EXCLUDED.password,
              role = EXCLUDED.role,
              phone = EXCLUDED.phone,
+             business_id = EXCLUDED.business_id,
              updated_at = NOW()`,
-          [user.id, fullName, user.email, user.password, user.password, livechatRole, user.phone]
+          [user.id, fullName, user.email, user.password, user.password, livechatRole, user.phone, user.businessId]
         );
         synced++;
       } catch (err: any) {

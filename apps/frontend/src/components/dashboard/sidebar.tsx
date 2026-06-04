@@ -29,7 +29,8 @@ import {
   TrendingUp,
   BarChart3,
   PieChart,
-  DollarSign
+  DollarSign,
+  Phone
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBusinessStore } from '@/store/business'
@@ -49,6 +50,7 @@ const baseNav: NavItem[] = [
   { title: 'Canales', href: '/channels', icon: Radio },
   { title: 'Conocimiento', href: '/files', icon: FileText },
   { title: 'CRM', href: '/leads', icon: Users },
+  { title: 'Call Center', href: '/crm/call-center', icon: Phone },
   { title: 'Swarm Control', href: '/swarm-control', icon: Activity },
   { title: 'Configuración', href: '/settings', icon: Settings },
   { title: 'Suscripción', href: '/dashboard/subscription', icon: CreditCard },
@@ -72,6 +74,7 @@ const industryNav: Record<string, NavItem[]> = {
   ],
   CLINIC: [
     { title: 'Citas', href: '/appointments', icon: Stethoscope },
+    { title: 'Control Clínico', href: '/clinic', icon: Activity },
     { title: 'Notificaciones', href: '/notifications', icon: Activity },
     { title: 'Recomendaciones', href: '/recommendations', icon: Send },
   ],

@@ -46,11 +46,13 @@ Recomendamos usar **Netlify** para los frontends. Netlify compilará el código 
 
 ### 1. Sysbot Frontend (`apps/frontend`)
 - Crea un nuevo sitio en Netlify conectado a tu repositorio de GitHub.
-- Configura los siguientes ajustes de compilación:
-  - **Base directory**: `apps/frontend`
-  - **Build command**: `pnpm build` (o `npm run build` si utilizas npm)
+- Deja el **Base directory** (Directorio base) vacío (o apunta a la raíz `/`) para que use el archivo `netlify.toml` de la raíz del monorepo.
+- El archivo `netlify.toml` en la raíz se encargará de configurar automáticamente:
+  - **Build command**: `pnpm --filter @syst/frontend build`
   - **Publish directory**: `apps/frontend/.next`
 - Agrega las siguientes variables de entorno en Netlify (**Site configuration -> Environment variables**):
+  - `NETLIFY_USE_PNPM`: `true`
+  - `NODE_VERSION`: `20`
   - `NEXT_PUBLIC_API_URL`: URL pública de tu Sysbot Backend desplegado en Railway (ej: `https://sysbot-backend.up.railway.app/api/v1`).
   - `NEXT_PUBLIC_WS_URL`: URL de WebSocket del Sysbot Backend (ej: `wss://sysbot-backend.up.railway.app`).
 

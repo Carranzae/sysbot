@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255),
     role VARCHAR(50) DEFAULT 'user',
     phone VARCHAR(50),
+    business_id VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -73,5 +74,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_user_phone ON messages(user_id, customer
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_customer_memory_user_phone ON customer_memory(user_id, customer_phone);
+
+-- Migraciones y ajustes de compatibilidad
+ALTER TABLE users ADD COLUMN IF NOT EXISTS business_id VARCHAR(255);
 
 SELECT '✅ Base de datos livechat inicializada correctamente' AS status;

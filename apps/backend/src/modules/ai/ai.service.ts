@@ -471,6 +471,32 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     return { objects: cleaned };
   }
 
+  async generateAnalysis(
+    businessId: string,
+    systemPrompt: string,
+    userPrompt: string,
+  ): Promise<string> {
+    this.logger.log(`[AiService] Iniciando análisis/auditoría genérica para el negocio: ${businessId}`);
+    try {
+      const provider = await this.getProviderForBusiness(businessId);
+      const response = await this.executeProviderRequest(
+        businessId,
+        provider,
+        userPrompt,
+        {
+          systemPrompt,
+          temperature: 0.2,
+          maxTokens: 1500,
+        },
+        'SELF_STUDY',
+      );
+      return response.text;
+    } catch (error: any) {
+      this.logger.error(`[AiService] Error al generar análisis para el negocio: ${error.message}`);
+      throw error;
+    }
+  }
+
   async generateResponse(
     businessId: string,
     customerMessage: string,
@@ -595,6 +621,21 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
 
     // Construir el prompt con contexto del negocio
     let businessContext = basePrompt;
+
+    if (business.industryType === 'CLINIC') {
+      businessContext += `\n\n🩺 SISTEMA DE TRIAJE DIGITAL PRELIMINAR (OBLIGATORIO):
+Si el paciente solicita una consulta médica o cita pero NO indica la especialidad:
+1. Pregúntale activamente por sus síntomas o molestias: "¿Qué síntomas o malestares estás experimentando para poder derivarte con el especialista adecuado?"
+2. Aplica las siguientes reglas de derivación clínica interna basadas en los síntomas que describa:
+   - Dolor en el pecho, presión en el pecho, palpitaciones fuertes, hipertensión o soplo -> Derivar a la especialidad de 'Cardiología'.
+   - Fiebre en niños, problemas de crecimiento, vacunas infantiles o malestares en menores de edad -> Derivar a la especialidad de 'Pediatría'.
+   - Fracturas, dolores de huesos, articulaciones, esguinces, dolor de columna o muscular fuerte -> Derivar a la especialidad de 'Traumatología'.
+   - Problemas urinarios, riñones, próstata -> Derivar a la especialidad de 'Urología'.
+   - Problemas en la piel, sarpullido, lunares sospechosos, acné -> Derivar a la especialidad de 'Dermatología'.
+   - Dolor de cabeza leve, resfriado común, chequeo general o síntomas no especificados -> Derivar a la especialidad de 'Medicina General'.
+3. Una vez identificada la especialidad por triaje, infórmale al paciente y procede al flujo de búsqueda de horarios libres usando [CHECK_APPOINTMENTS_BY_SPECIALTY].
+4. Explícale al paciente que sus síntomas de triaje serán registrados de forma real en su expediente médico EHR al confirmar la cita.`;
+    }
     
     if (business.categories && business.categories.length > 0) {
       businessContext += `\nEste negocio se especializa en las siguientes categorías: ${business.categories.join(', ')}. Adapta tu vocabulario, tono y recomendaciones explícitamente a estas categorías para dar una atención exclusiva.\n`;
@@ -1511,6 +1552,12 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`[processAppointmentRequests] BusinessId: ${businessId}`);
     this.logger.log(`[processAppointmentRequests] Respuesta del AI (primeros 500 chars): ${response.substring(0, 500)}`);
 
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { industryType: true }
+    });
+    const isClinic = business?.industryType === 'CLINIC';
+
     // MEJORA: Usar regex más robusto para buscar el comando
     const appointmentRegex = /\[CREATE_APPOINTMENT:([^\]]+)\]/gi;
     let appointmentCommand = extractedCommand || response.match(appointmentRegex)?.[0];
@@ -1638,7 +1685,7 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Obtener configuración del rubro para usar terminología correcta
-    const business = await this.prisma.business.findUnique({
+    const businessSettings = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: {
         industryType: true,
@@ -1647,8 +1694,8 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
         },
       },
     });
-    const customBusinessHours = business?.botConfig?.businessHours as Record<string, { enabled: boolean; start: string; end: string }> | null | undefined;
-    const industryConfig = this.getIndustryAppointmentConfig(business?.industryType || 'OTHER', customBusinessHours);
+    const customBusinessHours = businessSettings?.botConfig?.businessHours as Record<string, { enabled: boolean; start: string; end: string }> | null | undefined;
+    const industryConfig = this.getIndustryAppointmentConfig(businessSettings?.industryType || 'OTHER', customBusinessHours);
 
     // Procesar [CREATE_APPOINTMENT:nombre:telefono:fecha:hora:duracion:especialidad:notas]
     // Buscar en processedResponse porque puede haber sido modificado por la detección de fallo
@@ -2130,9 +2177,13 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
         endTime.setMinutes(endTime.getMinutes() + duration);
         const endTimeStr = endTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
+        const paymentLinkText = isClinic 
+          ? `\n\n💳 Para asegurar tu consulta, realiza el pago anticipado aquí: https://pagos.nexorium.com/checkout?appointmentId=${appointment.id}` 
+          : '';
+
         processedResponse = processedResponse.replace(
           match[0],
-          `✅ Cita registrada exitosamente.\n\n✨ Detalle de tu cita:\n📅 Fecha: ${formattedDate}\n⏰ Hora: ${appointmentDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} - ${endTimeStr}\n⏱️ Duración: ${duration} minutos${specialtyText}\n👤 Cliente: ${name}\n📞 Teléfono: ${normalizedPhoneForSave}\n📝 Notas: ${notes || 'Ninguna'}\n\nGracias por elegir ${businessName}. ¡Te esperamos!`,
+          `✅ Cita registrada exitosamente.\n\n✨ Detalle de tu cita:\n📅 Fecha: ${formattedDate}\n⏰ Hora: ${appointmentDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} - ${endTimeStr}\n⏱️ Duración: ${duration} minutos${specialtyText}\n👤 Cliente: ${name}\n📞 Teléfono: ${normalizedPhoneForSave}\n📝 Notas: ${notes || 'Ninguna'}\n\nGracias por elegir ${businessName}. ¡Te esperamos!${paymentLinkText}`,
         );
       } catch (error: any) {
         this.logger.error('Error creating appointment:', error);

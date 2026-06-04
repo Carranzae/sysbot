@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useBusinessStore } from '@/store/business';
+import { crmCallApi } from '@/lib/api';
 
 export default function CallCenterPage() {
   const { toast } = useToast();
@@ -14,6 +15,7 @@ export default function CallCenterPage() {
   // States
   const [selectedCall, setSelectedCall] = useState<any | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [callLogs, setCallLogs] = useState<any[]>([]);
   const [analytics, setAnalytics] = useState<any>({
     totalCalls: 0,
@@ -24,69 +26,42 @@ export default function CallCenterPage() {
     avgSurveyScore: '5.0',
   });
 
-  useEffect(() => {
+  const loadData = async () => {
     if (!selectedBusiness) return;
+    setLoading(true);
+    try {
+      const [logsRes, analyticsRes] = await Promise.all([
+        crmCallApi.getLogs(),
+        crmCallApi.getAnalytics(),
+      ]);
+      const logs = logsRes.data || [];
+      setCallLogs(logs);
+      setAnalytics(analyticsRes.data || {
+        totalCalls: 0,
+        completedCalls: 0,
+        resolvedCalls: 0,
+        resolutionRate: '0%',
+        avgDurationSeconds: 0,
+        avgSurveyScore: '5.0',
+      });
+      if (logs.length > 0) {
+        setSelectedCall(logs[0]);
+      } else {
+        setSelectedCall(null);
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Error al cargar Call Center',
+        description: 'No se pudieron cargar los registros de llamadas del backend.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Simular logs
-    const mockLogs = [
-      {
-        id: 'call-1',
-        customerPhone: '+51 987 654 321',
-        customerName: 'Pedro Carranza',
-        duration: 124,
-        status: 'COMPLETED',
-        recordingUrl: '/mock/recording1.mp3',
-        transcription: 'Bot: Hola, bienvenido. ¿En qué puedo asistirte?\nCliente: Quiero reservar una cita para mañana a las 3 PM.\nBot: Con gusto. Mañana martes tenemos disponible a las 3 PM. ¿A nombre de quién la registro?\nCliente: Pedro Carranza, por favor.\nBot: Excelente, Pedro. Tu reserva para las 3:00 PM ha sido confirmada con éxito. ¿Alguna otra consulta?\nCliente: No, eso sería todo. Muchas gracias.\nBot: Gracias a ti, que tengas un gran día.',
-        sentimentAnalysis: 'HAPPY',
-        queryResolved: true,
-        crmTaskCreated: false,
-        surveyScore: 5,
-        surveyFeedback: 'El bot resolvió todo en menos de 2 minutos, excelente servicio.',
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'call-2',
-        customerPhone: '+51 912 345 678',
-        customerName: 'María Rojas',
-        duration: 45,
-        status: 'COMPLETED',
-        recordingUrl: '/mock/recording2.mp3',
-        transcription: 'Bot: Hola, bienvenido. ¿En qué puedo asistirte?\nCliente: Hola, quería saber el precio del paquete avanzado.\nBot: El paquete avanzado tiene un costo de 150 dólares mensuales. Incluye todos los módulos premium.\nCliente: Entendido. Déjame pensarlo y te vuelvo a llamar.\nBot: Perfecto, quedo a tu disposición.',
-        sentimentAnalysis: 'NEUTRAL',
-        queryResolved: true,
-        crmTaskCreated: false,
-        surveyScore: 4,
-        surveyFeedback: 'Respuesta muy directa y amable.',
-        createdAt: new Date(Date.now() - 3600000).toISOString(),
-      },
-      {
-        id: 'call-3',
-        customerPhone: '+51 999 888 777',
-        customerName: 'Juan Gómez',
-        duration: 18,
-        status: 'FAILED',
-        recordingUrl: null,
-        transcription: 'Cliente: Hola? Hola? No te escucho...\nBot: Disculpa, la conexión es inestable...',
-        sentimentAnalysis: 'NEUTRAL',
-        queryResolved: false,
-        crmTaskCreated: true,
-        surveyScore: null,
-        surveyFeedback: null,
-        createdAt: new Date(Date.now() - 7200000).toISOString(),
-      },
-    ];
-
-    setCallLogs(mockLogs);
-    setSelectedCall(mockLogs[0]);
-
-    setAnalytics({
-      totalCalls: 3,
-      completedCalls: 2,
-      resolvedCalls: 2,
-      resolutionRate: '66.7%',
-      avgDurationSeconds: 62,
-      avgSurveyScore: '4.5',
-    });
+  useEffect(() => {
+    loadData();
   }, [selectedBusiness]);
 
   const togglePlayback = () => {
@@ -179,39 +154,45 @@ export default function CallCenterPage() {
             </div>
 
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-              {callLogs.map((call) => (
-                <button
-                  key={call.id}
-                  onClick={() => setSelectedCall(call)}
-                  className={`w-full text-left p-4 rounded-2xl border transition flex flex-col gap-2 ${
-                    selectedCall?.id === call.id
-                      ? 'border-purple-500 bg-purple-500/5'
-                      : 'border-white/5 bg-slate-900/40 hover:bg-slate-900/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-bold text-white">{call.customerName || call.customerPhone}</span>
-                    <Badge className={
-                      call.status === 'COMPLETED'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        : 'bg-red-500/10 text-red-400 border-red-500/20'
-                    }>
-                      {call.status}
-                    </Badge>
-                  </div>
-                  
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {call.duration}s</span>
-                    <span>{new Date(call.createdAt).toLocaleTimeString()}</span>
-                  </div>
+              {loading ? (
+                <div className="text-center text-xs font-bold text-slate-500 py-8 uppercase tracking-widest animate-pulse">Cargando llamadas...</div>
+              ) : callLogs.length === 0 ? (
+                <div className="text-center text-xs font-bold text-slate-500 py-8 uppercase tracking-widest">Sin llamadas registradas</div>
+              ) : (
+                callLogs.map((call) => (
+                  <button
+                    key={call.id}
+                    onClick={() => setSelectedCall(call)}
+                    className={`w-full text-left p-4 rounded-2xl border transition flex flex-col gap-2 ${
+                      selectedCall?.id === call.id
+                        ? 'border-purple-500 bg-purple-500/5'
+                        : 'border-white/5 bg-slate-900/40 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-bold text-white">{(call.contact?.firstName ? `${call.contact.firstName} ${call.contact.lastName || ''}` : null) || call.customerPhone || 'Cliente de VoIP'}</span>
+                      <Badge className={
+                        call.status === 'COMPLETED'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : 'bg-red-500/10 text-red-400 border-red-500/20'
+                      }>
+                        {call.status}
+                      </Badge>
+                    </div>
+                    
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {call.duration}s</span>
+                      <span>{new Date(call.createdAt).toLocaleTimeString()}</span>
+                    </div>
 
-                  {call.crmTaskCreated && (
-                    <Badge className="bg-red-500/20 text-red-300 border-none text-[8px] font-black uppercase tracking-widest w-fit mt-1">
-                      ⚠️ Tarea CRM Creada
-                    </Badge>
-                  )}
-                </button>
-              ))}
+                    {call.crmTaskCreated && (
+                      <Badge className="bg-red-500/20 text-red-300 border-none text-[8px] font-black uppercase tracking-widest w-fit mt-1">
+                        ⚠️ Tarea CRM Creada
+                      </Badge>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -1,150 +1,273 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { AiService } from '../ai/ai.service';
+import { CrmCallService } from '../crm-call/crm-call.service';
+import { twiml } from 'twilio';
 
 @Injectable()
 export class TwilioService {
+  private readonly logger = new Logger(TwilioService.name);
+  private activeCalls = new Map<
+    string,
+    {
+      from: string;
+      to: string;
+      startTime: number;
+      transcripts: string[];
+      queryResolved: boolean;
+    }
+  >();
+
   constructor(
     private prisma: PrismaService,
-    private subscriptionService: SubscriptionService
+    private subscriptionService: SubscriptionService,
+    private aiService: AiService,
+    private crmCallService: CrmCallService,
   ) {}
 
-  async receiveCall(from: string, to: string, callSid: string) {
-    console.log(`Incoming call from ${from} to ${to}`);
+  async receiveCall(from: string, to: string, callSid: string): Promise<string> {
+    this.logger.log(`Incoming call from ${from} to ${to} (SID: ${callSid})`);
 
     // Buscar negocio asociado al número
-    const business = await this.findBusinessByPhoneNumber(to);
-    
+    const business = await this.prisma.business.findFirst({
+      where: { phone: to },
+    });
+
     if (!business) {
-      return this.generateTwiMLResponse('Sorry, this number is not configured.');
+      return this.generateTwiMLResponse('Lo sentimos, este número no está configurado para atención.');
     }
 
     // Verificar si el plan soporta llamadas
     const subscription = await this.subscriptionService.getSubscription(business.id);
-    
-    if (!this.canReceiveCalls(subscription?.planType)) {
-      return this.generateTwiMLResponse('This plan does not support voice calls. Please upgrade your subscription.');
-    }
+    const planType = subscription?.planType || 'FREE';
+
+    // Guardar el estado inicial de la llamada
+    this.activeCalls.set(callSid, {
+      from,
+      to,
+      startTime: Date.now(),
+      transcripts: [],
+      queryResolved: false,
+    });
+
+    // Registrar mensaje inicial de llamada en la BD (para historial conversacional)
+    await this.prisma.message.create({
+      data: {
+        businessId: business.id,
+        direction: 'INBOUND',
+        content: '[Llamada de voz iniciada]',
+        from,
+        to,
+        platform: 'TELEPHONY',
+        status: 'DELIVERED',
+      },
+    });
 
     // Desviar a procesamiento de IA
-    if (['ENTERPRISE', 'ULTIMATE'].includes(subscription?.planType)) {
-      return this.processCallWithAI(callSid, from, business.id);
-    } else {
-      return this.processBasicCall(callSid, from, business.id);
-    }
+    return this.processCallWithAI(callSid, from, business.id);
   }
 
-  private async processCallWithAI(callSid: string, from: string, businessId: string) {
-    // Generar TwiML para recibir audio y procesar con IA
-    const twiml = this.createTwiMLResponse();
-    
-    const gather = twiml.gather({
-      input: 'speech',
-      language: 'es-ES',
-      timeout: 3,
-      numDigits: 1,
-      action: `/api/telephony/process-speech/${businessId}/${callSid}`
+  private async processCallWithAI(callSid: string, from: string, businessId: string): Promise<string> {
+    const response = new twiml.VoiceResponse();
+    const welcomeMsg = 'Hola, bienvenido. ¿En qué te puedo ayudar hoy?';
+
+    // Graba la transcripción de la respuesta inicial del bot
+    const callInfo = this.activeCalls.get(callSid);
+    if (callInfo) {
+      callInfo.transcripts.push(`Bot: ${welcomeMsg}`);
+    }
+
+    const gather = response.gather({
+      input: ['speech'],
+      language: 'es-PE',
+      timeout: 4,
+      action: `/api/telephony/process-speech/${businessId}/${callSid}`,
     });
-    
-    gather.say({ language: 'es-ES' }, 'Hola, soy el asistente virtual. ¿En qué puedo ayudarte?');
-    
-    return twiml.toString();
+
+    gather.say({ language: 'es-PE' }, welcomeMsg);
+
+    // Fallback si no dicen nada
+    response.say({ language: 'es-PE' }, 'No logré escucharte. Gracias por llamar. Adiós.');
+    response.hangup();
+
+    return response.toString();
   }
 
-  private async processBasicCall(callSid: string, from: string, businessId: string) {
-    const twiml = this.createTwiMLResponse();
-    
-    twiml.say({ language: 'es-ES' }, 'Gracias por llamar. Este número solo admite mensajes de texto. Por favor, contáctanos por WhatsApp.');
-    twiml.hangup();
-    
-    return twiml.toString();
-  }
-
-  async processSpeechResult(callSid: string, businessId: string, speechResult: string) {
+  async processSpeechResult(callSid: string, businessId: string, speechResult: string): Promise<string> {
     try {
-      // Por ahora, respuesta simple hasta que implementemos TTS
-      const twiml = this.createTwiMLResponse();
-      twiml.say({ language: 'es-ES' }, 'Entendí tu solicitud. Un momento mientras proceso tu respuesta.');
-      
-      // Preguntar si necesita algo más
-      const gather = twiml.gather({
-        input: 'speech',
-        language: 'es-ES',
-        timeout: 3,
-        action: `/api/telephony/process-speech/${businessId}/${callSid}`
+      this.logger.log(`[Twilio Call] SpeechResult recibida: "${speechResult}"`);
+      const response = new twiml.VoiceResponse();
+
+      const callInfo = this.activeCalls.get(callSid);
+      const fromPhone = callInfo?.from || 'unknown';
+      const toPhone = callInfo?.to || 'unknown';
+
+      if (!speechResult || speechResult.trim().length === 0) {
+        const retryMsg = 'Disculpa, no logré escucharte bien. ¿Me lo podrías repetir?';
+        if (callInfo) {
+          callInfo.transcripts.push(`Bot: ${retryMsg}`);
+        }
+        const gather = response.gather({
+          input: ['speech'],
+          language: 'es-PE',
+          timeout: 4,
+          action: `/api/telephony/process-speech/${businessId}/${callSid}`,
+        });
+        gather.say({ language: 'es-PE' }, retryMsg);
+        
+        response.say({ language: 'es-PE' }, 'Gracias por llamar. Hasta luego.');
+        response.hangup();
+        return response.toString();
+      }
+
+      // Guardar lo que dijo el usuario en transcripts y mensajes
+      if (callInfo) {
+        callInfo.transcripts.push(`Cliente: ${speechResult}`);
+      }
+
+      await this.prisma.message.create({
+        data: {
+          businessId,
+          direction: 'INBOUND',
+          content: speechResult,
+          from: fromPhone,
+          to: toPhone,
+          platform: 'TELEPHONY',
+          status: 'DELIVERED',
+        },
       });
-      
-      gather.say({ language: 'es-ES' }, '¿Necesitas algo más?');
-      
-      return twiml.toString();
-      
+
+      // Generar respuesta real usando el motor de IA
+      const aiResponse = await this.aiService.generateResponse(businessId, speechResult, fromPhone, {
+        platform: 'TELEPHONY',
+        senderId: fromPhone,
+      });
+
+      // Limpiar tags o comandos tridimensionales de la respuesta de voz (ej: [CREATE_APPOINTMENT:...])
+      const cleanMessage = aiResponse.message
+        .replace(/\[[A-Z0-9_]+:[^\]]+\]/gi, '')
+        .replace(/\[[A-Z0-9_]+\]/gi, '')
+        .trim();
+
+      // Guardar respuesta del bot en la BD e historial
+      if (callInfo) {
+        callInfo.transcripts.push(`Bot: ${cleanMessage}`);
+        
+        // Si el AI registró la cita médica (que contiene confirmación)
+        if (aiResponse.message.toLowerCase().includes('cita registrada') || aiResponse.message.toLowerCase().includes('confirmada')) {
+          callInfo.queryResolved = true;
+        }
+      }
+
+      await this.prisma.message.create({
+        data: {
+          businessId,
+          direction: 'OUTBOUND',
+          content: cleanMessage,
+          from: toPhone,
+          to: fromPhone,
+          platform: 'TELEPHONY',
+          status: 'SENT',
+        },
+      });
+
+      // Detectar si la respuesta indica el cierre de la llamada
+      const lowerResponse = cleanMessage.toLowerCase();
+      const isFarewell = lowerResponse.includes('adiós') || 
+                         lowerResponse.includes('adios') || 
+                         lowerResponse.includes('hasta luego') || 
+                         lowerResponse.includes('chao') ||
+                         lowerResponse.includes('que tengas un buen día');
+
+      if (isFarewell) {
+        if (callInfo) {
+          callInfo.queryResolved = true;
+        }
+        response.say({ language: 'es-PE' }, cleanMessage);
+        response.hangup();
+        return response.toString();
+      }
+
+      // Continuar la conversación
+      const gather = response.gather({
+        input: ['speech'],
+        language: 'es-PE',
+        timeout: 4,
+        action: `/api/telephony/process-speech/${businessId}/${callSid}`,
+      });
+      gather.say({ language: 'es-PE' }, cleanMessage);
+
+      response.say({ language: 'es-PE' }, 'Gracias por llamar. Hasta luego.');
+      response.hangup();
+
+      return response.toString();
+
     } catch (error) {
-      console.error('Error processing speech:', error);
-      
-      const twiml = this.createTwiMLResponse();
-      twiml.say({ language: 'es-ES' }, 'Lo siento, no pude procesar tu solicitud. Por favor, intenta nuevamente.');
-      twiml.hangup();
-      
-      return twiml.toString();
+      this.logger.error('Error processing speech in call:', error);
+      const response = new twiml.VoiceResponse();
+      response.say({ language: 'es-PE' }, 'Lo siento, ha ocurrido un error al procesar tu solicitud. Por favor llama nuevamente.');
+      response.hangup();
+      return response.toString();
     }
   }
 
-  private createTwiMLResponse() {
-    // Simulación de TwiML response - en producción usaría la librería de Twilio
-    return {
-      toString: () => `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say language="es-ES">Hola, soy el asistente virtual.</Say>
-</Response>`,
-      gather: (options: any) => ({
-        say: (optionsOrText: any, text?: string) => {
-          const msg = typeof optionsOrText === 'string' ? optionsOrText : text || '';
-          return {
-            toString: () => `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Gather input="${options.input}" language="${options.language}" timeout="${options.timeout}" action="${options.action}">
-    <Say language="es-ES">${msg}</Say>
-  </Gather>
-</Response>`
-          };
-        }
-      }),
-      say: (optionsOrText: any, text?: string) => {
-        const msg = typeof optionsOrText === 'string' ? optionsOrText : text || '';
-        return {
-          toString: () => `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say language="es-ES">${msg}</Say>
-</Response>`
-        };
-      },
-      hangup: () => ({
-        toString: () => `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Hangup/>
-</Response>`
-      })
-    };
+  async handleCallEnded(callSid: string, durationStr?: string, callStatus?: string): Promise<void> {
+    const callInfo = this.activeCalls.get(callSid);
+    if (!callInfo) {
+      return;
+    }
+
+    try {
+      const duration = durationStr ? parseInt(durationStr) : Math.round((Date.now() - callInfo.startTime) / 1000);
+      const status = callStatus === 'completed' || callStatus === 'COMPLETED' ? 'COMPLETED' : 'FAILED';
+
+      const businessId = await this.findBusinessIdByPhone(callInfo.to);
+      if (!businessId) return;
+
+      // Buscar contacto
+      let contact = await this.prisma.contact.findFirst({
+        where: { phone: callInfo.from, businessId }
+      });
+
+      if (!contact) {
+        contact = await this.prisma.contact.create({
+          data: {
+            phone: callInfo.from,
+            businessId,
+            name: `Cliente de Voz ${callInfo.from.slice(-4)}`,
+            source: 'CRM',
+            autoCreated: true,
+          }
+        });
+      }
+
+      await this.crmCallService.logCall({
+        businessId: contact.businessId,
+        contactId: contact.id,
+        duration,
+        status,
+        transcription: callInfo.transcripts.join('\n'),
+        sentiment: 'NEUTRAL',
+        queryResolved: callInfo.queryResolved,
+      });
+      this.logger.log(`[Twilio Call] Llamada finalizada y guardada en CRM para contacto ${contact.phone}. Duración: ${duration}s`);
+    } catch (err: any) {
+      this.logger.error(`[Twilio Call] Error al registrar fin de llamada: ${err.message}`);
+    } finally {
+      this.activeCalls.delete(callSid);
+    }
+  }
+
+  private async findBusinessIdByPhone(to: string): Promise<string | null> {
+    const biz = await this.prisma.business.findFirst({ where: { phone: to } });
+    return biz?.id || null;
   }
 
   private generateTwiMLResponse(message: string): string {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say language="es-ES">${message}</Say>
-  <Hangup/>
-</Response>`;
-  }
-
-  private async findBusinessByPhoneNumber(phoneNumber: string) {
-    // Buscar negocio por número de teléfono
-    return this.prisma.business.findFirst({
-      where: {
-        phone: phoneNumber
-      }
-    });
-  }
-
-  private canReceiveCalls(planType: string): boolean {
-    return ['PREMIUM', 'ENTERPRISE', 'ULTIMATE'].includes(planType);
+    const response = new twiml.VoiceResponse();
+    response.say({ language: 'es-PE' }, message);
+    response.hangup();
+    return response.toString();
   }
 }

@@ -19,6 +19,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthenticatedUser
+      businessId?: string
     }
   }
 }
@@ -80,6 +81,16 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     }
 
     req.user = user
+    
+    // Extract businessId from header if provided (sent by bridge or frontend)
+    const businessIdHeader = req.headers['x-business-id']
+    if (businessIdHeader && typeof businessIdHeader === 'string') {
+      req.businessId = businessIdHeader
+    } else {
+      // Fallback: Si no mandan header, tratar de usar el que tiene en la tabla (por si era un usuario de un solo negocio)
+      req.businessId = (user as any).business_id
+    }
+
     next()
   } catch (error) {
     console.error('Error en middleware de autenticación:', error)
