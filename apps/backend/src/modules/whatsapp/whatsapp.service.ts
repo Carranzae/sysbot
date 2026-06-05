@@ -39,7 +39,7 @@ export class WhatsappService {
       }
 
       const response = await axios.post(
-        `${this.apiUrl}/${phoneNumberId}/messages`,
+        `${this.apiUrl}/${this.apiVersion}/${phoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           to,
@@ -83,7 +83,7 @@ export class WhatsappService {
       }
 
       const response = await axios.post(
-        `${this.apiUrl}/${phoneNumberId}/messages`,
+        `${this.apiUrl}/${this.apiVersion}/${phoneNumberId}/messages`,
         payload,
         {
           headers: {
@@ -132,7 +132,7 @@ export class WhatsappService {
       }
 
       const response = await axios.post(
-        `${this.apiUrl}/${phoneNumberId}/messages`,
+        `${this.apiUrl}/${this.apiVersion}/${phoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           to,
@@ -168,7 +168,7 @@ export class WhatsappService {
       }
 
       const response = await axios.post(
-        `${this.apiUrl}/${phoneNumberId}/messages`,
+        `${this.apiUrl}/${this.apiVersion}/${phoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           status: 'read',

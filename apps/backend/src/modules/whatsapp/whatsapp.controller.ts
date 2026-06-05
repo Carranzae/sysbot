@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards, BadRequestException, UseInterceptors, UploadedFile, HttpCode, HttpStatus } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappWebService } from './whatsapp-web.service';
@@ -332,6 +332,7 @@ export class WhatsappController {
   }
 
   @Post('webhook')
+  @HttpCode(200)
   async handleWebhook(@Body() body: any, @Req() req: any) {
     try {
       if (body.object !== 'whatsapp_business_account') {
@@ -430,10 +431,29 @@ export class WhatsappController {
       }
 
       // Handle media
-      if (messageType === 'image' || messageType === 'video') {
-        const media = message[messageType];
-        this.whatsappService.setPendingEvidence(from, { media, text: messageText, from, type: messageType });
-        await this.whatsappService.sendMessage(phoneNumberId, from, 'Has enviado una imagen/video. Si es evidencia para revisión por especialista, responde "sí" para enviarla.');
+      if (messageType === 'image' || messageType === 'video' || messageType === 'document' || messageType === 'audio') {
+        const business = await this.prisma.business.findUnique({
+          where: { id: businessId },
+          select: { industryType: true }
+        });
+        const isClinic = business?.industryType === 'CLINIC';
+
+        if (isClinic && (messageType === 'image' || messageType === 'video')) {
+          const media = message[messageType];
+          this.whatsappService.setPendingEvidence(from, { media, text: messageText, from, type: messageType });
+          await this.whatsappService.sendMessage(phoneNumberId, from, 'Has enviado una imagen/video. Si es evidencia para revisión por especialista, responde "sí" para enviarla.');
+        } else {
+          // Si no es clínica o es otro tipo de archivo, responder usando el texto/caption si existe, o pedir texto
+          if (messageText && messageText.trim() !== '') {
+            const aiResponse = await this.aiService.generateResponse(businessId, messageText, from, {
+              platform: 'WHATSAPP_API',
+              senderId: from,
+            });
+            await this.whatsappService.sendMessage(phoneNumberId, from, aiResponse.message);
+          } else {
+            await this.whatsappService.sendMessage(phoneNumberId, from, 'He recibido tu archivo. Por el momento, no puedo analizar este tipo de archivos en este canal. ¿Podrías escribirme en texto tu consulta?');
+          }
+        }
         await this.whatsappService.markAsRead(phoneNumberId, message.id);
         return; // Don't send AI response for media
       }

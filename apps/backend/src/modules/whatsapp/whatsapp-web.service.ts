@@ -173,9 +173,10 @@ export class WhatsappWebService implements OnModuleInit {
         this.sockets.delete(businessId);
       }
 
-    const phoneNumber = config?.whatsappWebNumber || '+1234567890';
+    const phoneNumber = config?.whatsappWebNumber;
     if (!phoneNumber) {
-      throw new Error('Phone number not configured for WhatsApp Web');
+      console.error(`[WhatsApp Web] ❌ No phone number configured for businessId: ${businessId}. Please set whatsappWebNumber in bot_configs.`);
+      throw new Error('Phone number not configured for WhatsApp Web. Go to Settings → WhatsApp Web and configure your phone number.');
     }
 
     const sessionsDir = join(process.cwd(), 'whatsapp_auth_sessions');
@@ -1705,15 +1706,55 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
             await this.sendMessage(businessId, fromJid, 'Hubo un error al procesar tu comprobante. Por favor, intenta nuevamente o contacta con soporte.');
           }
         } else {
-          // Archivo normal, preguntar si es evidencia
-          this.pendingEvidence.set(from, { media, text, from });
-          
-          if (msg.message?.imageMessage) {
-            await this.sendMessage(businessId, fromJid, '📋 He recibido tu evidencia médica. ¿Quieres que la evalúe el especialista? (Sí/No)');
-          } else if (msg.message?.documentMessage) {
-            await this.sendMessage(businessId, fromJid, `✅ Recibí tu documento: ${fileName}. Si es evidencia para revisión, responde "sí" para enviarla.`);
+          // Obtener el rubro del negocio para validar si es CLINIC
+          const business = await this.prisma.business.findUnique({
+            where: { id: businessId },
+            select: { industryType: true }
+          });
+          const isClinic = business?.industryType === 'CLINIC';
+
+          if (isClinic && (isEvidence || text === '')) {
+            // Preguntar si es evidencia en el caso de clínica y si no hay descripción o si coincide con síntomas
+            this.pendingEvidence.set(from, { media, text, from });
+            
+            if (msg.message?.imageMessage) {
+              await this.sendMessage(businessId, fromJid, '📋 He recibido tu evidencia médica. ¿Quieres que la evalúe el especialista? (Sí/No)');
+            } else if (msg.message?.documentMessage) {
+              await this.sendMessage(businessId, fromJid, `✅ Recibí tu documento: ${fileName}. Si es evidencia para revisión, responde "sí" para enviarla.`);
+            } else {
+              await this.sendMessage(businessId, fromJid, '✅ Recibí tu video. Si es evidencia para revisión por especialista, responde "sí" para enviarla.');
+            }
           } else {
-            await this.sendMessage(businessId, fromJid, '✅ Recibí tu video. Si es evidencia para revisión por especialista, responde "sí" para enviarla.');
+            // No es clínica o el usuario proporcionó una descripción -> Procesar con IA
+            console.log(`[WhatsApp Web] Procesando archivo con IA directamente para negocio ${businessId}`);
+            
+            const fileAttachment = {
+              data: media,
+              mimeType: mimeType,
+              filename: fileName
+            };
+
+            const effectiveText = text || 'Analiza esta imagen o archivo y responde a ella.';
+            
+            const aiResponse = await this.aiService.generateResponse(businessId, effectiveText, from, {
+              platform: 'WHATSAPP_WEB',
+              senderId: from,
+              files: [fileAttachment]
+            } as any);
+
+            // Modulación de tono (Swarm)
+            let finalMessage = aiResponse.message;
+            try {
+              const toneService = (this.swarmService as any).peruvianTone;
+              if (toneService) {
+                const profile = toneService.detectCustomerProfile(effectiveText, { name: from });
+                finalMessage = toneService.modulateResponse(aiResponse.message, profile, from);
+              }
+            } catch (err: any) {
+              console.error('[WhatsApp Web] Swarm modulation failed for media, using raw AI:', err.message);
+            }
+
+            await this.sendMessage(businessId, fromJid, finalMessage);
           }
         }
       } catch (error) {

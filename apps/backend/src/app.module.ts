@@ -50,6 +50,7 @@ import { CrmCallModule } from './modules/crm-call/crm-call.module';
 import { SelfStudyModule } from './modules/self-study/self-study.module';
 import { PaymentRevisorModule } from './modules/payment-revisor/payment-revisor.module';
 import { ClinicModule } from './modules/clinic/clinic.module';
+import { SubscriptionModule } from './modules/subscription/subscription.module';
 
 @Module({
   imports: [
@@ -63,7 +64,13 @@ import { ClinicModule } from './modules/clinic/clinic.module';
         redis: {
           host: process.env.REDIS_HOST || 'localhost',
           port: parseInt(process.env.REDIS_PORT || '6379'),
-          password: process.env.REDIS_PASSWORD,
+          password: process.env.REDIS_PASSWORD || undefined,
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+          retryStrategy(times) {
+            // Reintentar cada 5 segundos para evitar que el backend crashee
+            return 5000;
+          },
         },
       }),
     }),
@@ -105,7 +112,6 @@ import { ClinicModule } from './modules/clinic/clinic.module';
     SettingsModule,
     OauthModule,
     McpModule,
-    // SubscriptionModule,
     TelephonyModule,
     AudioModule,
     PlanModule,
@@ -118,6 +124,7 @@ import { ClinicModule } from './modules/clinic/clinic.module';
     CrmCallModule,
     SelfStudyModule,
     PaymentRevisorModule,
+    SubscriptionModule,
     ClinicModule,
   ],
   providers: [

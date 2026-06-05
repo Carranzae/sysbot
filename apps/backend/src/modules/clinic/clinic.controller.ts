@@ -3,7 +3,7 @@ import { ClinicService } from './clinic.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@Controller('v1')
+@Controller('clinic')
 export class ClinicController {
   constructor(
     private readonly clinicService: ClinicService,

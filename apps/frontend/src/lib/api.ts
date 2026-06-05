@@ -343,22 +343,22 @@ export const crmCallApi = {
 
 // ============== CLINIC MANAGEMENT API ==============
 export const clinicApi = {
-  getContracts: (businessId: string) => api.get(`/v1/clinic/contracts?businessId=${businessId}`),
-  configureContract: (businessId: string, data: any) => api.post(`/v1/clinic/contracts?businessId=${businessId}`, data),
-  getDoctorsWallet: (businessId: string) => api.get(`/v1/clinic/doctors/wallet?businessId=${businessId}`),
-  registerInvoice: (businessId: string, data: any) => api.post(`/v1/integrations/invoices?businessId=${businessId}`, data),
-  getInventory: (businessId: string) => api.get(`/v1/clinic/inventory?businessId=${businessId}`),
-  configureInventoryItem: (businessId: string, data: any) => api.post(`/v1/clinic/inventory?businessId=${businessId}`, data),
-  getProcedureSupplies: (businessId: string) => api.get(`/v1/clinic/supplies?businessId=${businessId}`),
-  configureProcedureSupplies: (businessId: string, data: any) => api.post(`/v1/clinic/supplies?businessId=${businessId}`, data),
-  deductInventory: (businessId: string, procedureName: string) => api.post(`/v1/inventory/deduct?businessId=${businessId}`, { procedureName }),
-  getPatientDocuments: (businessId: string, phone: string) => api.get(`/v1/patients/documents?businessId=${businessId}&customerPhone=${phone}`),
+  getContracts: (businessId: string) => api.get(`/clinic/contracts?businessId=${businessId}`),
+  configureContract: (businessId: string, data: any) => api.post(`/clinic/contracts?businessId=${businessId}`, data),
+  getDoctorsWallet: (businessId: string) => api.get(`/clinic/doctors/wallet?businessId=${businessId}`),
+  registerInvoice: (businessId: string, data: any) => api.post(`/clinic/integrations/invoices?businessId=${businessId}`, data),
+  getInventory: (businessId: string) => api.get(`/clinic/inventory?businessId=${businessId}`),
+  configureInventoryItem: (businessId: string, data: any) => api.post(`/clinic/inventory?businessId=${businessId}`, data),
+  getProcedureSupplies: (businessId: string) => api.get(`/clinic/supplies?businessId=${businessId}`),
+  configureProcedureSupplies: (businessId: string, data: any) => api.post(`/clinic/supplies?businessId=${businessId}`, data),
+  deductInventory: (businessId: string, procedureName: string) => api.post(`/clinic/inventory/deduct?businessId=${businessId}`, { procedureName }),
+  getPatientDocuments: (businessId: string, phone: string) => api.get(`/clinic/patients/documents?businessId=${businessId}&customerPhone=${phone}`),
   getAvailableSlots: (businessId: string, date: string, specialty: string, duration = 60) => 
-    api.get(`/v1/slots/disponibles?businessId=${businessId}&date=${date}&specialty=${specialty}&duration=${duration}`),
+    api.get(`/clinic/slots/disponibles?businessId=${businessId}&date=${date}&specialty=${specialty}&duration=${duration}`),
   registerAppointmentFromIntegration: (businessId: string, data: any) => 
-    api.post(`/v1/integrations/appointments?businessId=${businessId}`, data),
+    api.post(`/clinic/integrations/appointments?businessId=${businessId}`, data),
   notifyLabResult: (businessId: string, fileId: string) => 
-    api.post(`/v1/clinic/notify-lab?businessId=${businessId}`, { fileId }),
+    api.post(`/clinic/notify-lab?businessId=${businessId}`, { fileId }),
 }
 
 

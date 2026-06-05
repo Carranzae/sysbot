@@ -1020,6 +1020,7 @@ enum ContactSource {
   MESSENGER
   INSTAGRAM
   LIVECHAT
+  CRM
 }
 
 enum CampaignStatus {

@@ -1,7 +1,9 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { WhatsappWebService } from '../whatsapp/whatsapp-web.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import axios from 'axios';
 
 @Injectable()
@@ -11,6 +13,8 @@ export class ClinicService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly appointmentsService: AppointmentsService,
+    private readonly whatsappWebService: WhatsappWebService,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   /**
@@ -104,7 +108,42 @@ export class ClinicService {
         const formattedTime = apt.appointmentDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
         const reminderContent = `Hola ${apt.customerName}, confirma tu cita médica de mañana a las ${formattedTime}: responde *CONFIRMAR* o *CANCELAR*.`;
 
-        // Registrar el recordatorio saliente en el chat
+        // Intentar enviar realmente por WhatsApp
+        let messageSent = false;
+        let platformUsed: 'WHATSAPP_WEB' | 'WHATSAPP_API' = 'WHATSAPP_WEB';
+        try {
+          // Buscar botConfig para ver qué canal está habilitado
+          const botConfig = await this.prisma.botConfig.findUnique({
+            where: { businessId: apt.businessId },
+            select: { whatsappWebEnabled: true, whatsappApiEnabled: true, whatsappMode: true },
+          });
+
+          const mode = botConfig?.whatsappMode || 'WHATSAPP_WEB';
+
+          if (mode === 'WHATSAPP_WEB' && (botConfig?.whatsappWebEnabled !== false)) {
+            platformUsed = 'WHATSAPP_WEB';
+            const toJid = apt.customerPhone.includes('@') ? apt.customerPhone : `${apt.customerPhone}@s.whatsapp.net`;
+            this.logger.log(`[Clinic Service] Enviando recordatorio vía WhatsApp Web a ${toJid}`);
+            await this.whatsappWebService.sendMessage(apt.businessId, toJid, reminderContent);
+            messageSent = true;
+          } else if (mode === 'WHATSAPP_API' && (botConfig?.whatsappApiEnabled !== false)) {
+            platformUsed = 'WHATSAPP_API';
+            const account = await this.prisma.whatsAppAccount.findFirst({
+              where: { businessId: apt.businessId, isActive: true }
+            });
+            if (account) {
+              this.logger.log(`[Clinic Service] Enviando recordatorio vía WhatsApp API a ${apt.customerPhone} usando PhoneId ${account.phoneNumberId}`);
+              await this.whatsappService.sendMessage(account.phoneNumberId, apt.customerPhone, reminderContent);
+              messageSent = true;
+            } else {
+              this.logger.warn(`[Clinic Service] No se encontró cuenta de WhatsApp API activa para businessId: ${apt.businessId}`);
+            }
+          }
+        } catch (sendErr: any) {
+          this.logger.warn(`[Clinic Service] Error enviando por WhatsApp: ${sendErr.message}. Se registrará igualmente como PENDING.`);
+        }
+
+        // Registrar el recordatorio en el historial de chat
         await this.prisma.message.create({
           data: {
             businessId: apt.businessId,
@@ -112,8 +151,8 @@ export class ClinicService {
             content: reminderContent,
             from: '',
             to: apt.customerPhone,
-            platform: 'WHATSAPP_WEB',
-            status: 'SENT'
+            platform: platformUsed,
+            status: messageSent ? 'SENT' : 'PENDING'
           }
         });
 
@@ -123,7 +162,7 @@ export class ClinicService {
           data: { reminderSent: true }
         });
 
-        this.logger.log(`[Clinic Service] Recordatorio enviado exitosamente a ${apt.customerPhone}`);
+        this.logger.log(`[Clinic Service] Recordatorio ${messageSent ? 'enviado' : 'registrado (pendiente de envío)'} para ${apt.customerPhone}`);
       } catch (err: any) {
         this.logger.error(`Error enviando recordatorio para cita ${apt.id}: ${err.message}`);
       }
@@ -413,9 +452,11 @@ export class ClinicService {
       await this.prisma.notification.create({
         data: {
           businessId,
-          title: `⚠️ Stock Crítico: ${alert.name}`,
+          type: 'GENERAL',
+          recipient: 'admin',
+          subject: `⚠️ Stock Crítico: ${alert.name}`,
           message: `El insumo ${alert.name} (SKU: ${alert.sku}) ha bajado a un stock de ${alert.currentStock} unidades. Se requiere reposición.`,
-          read: false
+          isSent: false,
         }
       });
     }

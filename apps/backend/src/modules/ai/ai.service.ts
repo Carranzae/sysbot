@@ -204,6 +204,32 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async executeRequest(
+    businessId: string,
+    provider: AIProvider,
+    prompt: string,
+    options: any,
+    context?: { platform?: string; files?: FileAttachment[] }
+  ): Promise<AIProviderResponse> {
+    if (context?.files && context.files.length > 0 && provider.generateResponseWithFiles) {
+      return this.executeProviderRequestWithFiles(
+        businessId,
+        provider,
+        prompt,
+        context.files,
+        options,
+        context.platform || 'API'
+      );
+    }
+    return this.executeProviderRequest(
+      businessId,
+      provider,
+      prompt,
+      options,
+      context?.platform
+    );
+  }
+
   async onModuleInit() {
     await this.reloadSystemSettings();
 
@@ -504,6 +530,7 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     context?: {
       platform?: 'WHATSAPP_API' | 'WHATSAPP_WEB' | 'MESSENGER' | 'INSTAGRAM' | 'TELEGRAM';
       senderId?: string;
+      files?: FileAttachment[];
     }
   ): Promise<AIResponse> {
     const startTime = Date.now();
@@ -1363,7 +1390,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
             promptWithHistory += `¿En qué más puedo ayudarte?"\n`;
           }
 
-          const response = await this.executeProviderRequest(
+          const response = await this.executeRequest(
             businessId,
             provider,
             promptWithHistory,
@@ -1372,7 +1399,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
               maxTokens: config.maxTokens ?? 500,
               model: config.aiModel ?? undefined,
             },
-            context?.platform
+            context
           );
           aiResponse = response.content;
         }
@@ -1385,7 +1412,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
           : `${customPrompt}\n\nCliente: ${customerMessage}\n\nResponde de manera profesional.`;
 
         try {
-          const fallbackResponse = await this.executeProviderRequest(
+          const fallbackResponse = await this.executeRequest(
             businessId,
             provider,
             fallbackPrompt,
@@ -1394,7 +1421,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
               maxTokens: config.maxTokens ?? 300,
               model: config.aiModel ?? undefined,
             },
-            context?.platform
+            context
           );
           aiResponse = fallbackResponse.content;
           this.logger.log('[RAG] ✅ Fallback exitoso');
@@ -1410,7 +1437,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
         ? `${customPrompt}\n\nCliente: ${customerMessage}\n\nResponde de manera amigable y profesional, manteniendo el contexto de la conversación anterior:`
         : fullPrompt;
 
-      const response = await this.executeProviderRequest(
+      const response = await this.executeRequest(
         businessId,
         provider,
         promptWithHistory,
@@ -1419,7 +1446,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
           maxTokens: config.maxTokens ?? 500,
           model: config.aiModel ?? undefined,
         },
-        context?.platform
+        context
       );
 
       aiResponse = response.content;
