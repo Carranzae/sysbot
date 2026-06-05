@@ -114,7 +114,7 @@ export default function ProfilePage() {
       const { data } = await authApi.uploadAvatar(file)
       
       // Si la URL es relativa, le ponemos el prefijo del backend
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3003'
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3001'
       const finalUser = {
         ...data,
         avatarUrl: data.avatarUrl?.startsWith('/') ? `${baseUrl}${data.avatarUrl}` : data.avatarUrl

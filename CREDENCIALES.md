@@ -1,53 +1,50 @@
-# 🔐 CREDENCIALES Y CONTRASEÑAS - SISTEMA SYST
+# 🔐 CREDENCIALES Y CONFIGURACIÓN - SISTEMA SYST
 
 ## 📋 INFORMACIÓN IMPORTANTE
 
-Este documento contiene **TODAS** las credenciales, contraseñas y configuraciones necesarias para el sistema SYST.
+Este documento **NO** debe contener credenciales reales o datos sensibles.
+Para credenciales de producción, usar variables de entorno seguras.
 
-**⚠️ MANTÉN ESTE ARCHIVO SEGURO Y NO LO COMPARTAS**
+**⚠️ NUNCA commitear credenciales reales a repositorios públicos**
 
 ---
 
 ## 🗄️ BASE DE DATOS (PostgreSQL)
 
-### Configuración Local
+### Variables de Entorno Requeridas
 
 ```env
-DATABASE_URL=postgresql://syst_user:syst_password_2024@localhost:5432/syst_db
+DATABASE_URL=postgresql://[DB_USER]:[DB_PASSWORD]@[DB_HOST]:5432/[DB_NAME]
 ```
 
-**Desglose:**
-- **Host**: `localhost`
-- **Puerto**: `5432`
-- **Usuario**: `syst_user`
-- **Contraseña**: `syst_password_2024`
-- **Base de datos**: `syst_db`
+**Variables:**
+- `DB_USER`: Usuario de PostgreSQL
+- `DB_PASSWORD`: Contraseña segura
+- `DB_HOST`: Host del servidor
+- `DB_NAME`: Nombre de la base de datos
 
-### Acceso Directo
+### Acceso local (ejemplo)
 
 ```bash
-# Conectar a PostgreSQL
-psql -h localhost -p 5432 -U syst_user -d syst_db
-
-# Cuando pida contraseña, ingresa:
-syst_password_2024
+# Template - Reemplazar con valores reales
+psql -h localhost -p 5432 -U [DB_USER] -d [DB_NAME]
 ```
 
 ### Configuración Docker
 
-El archivo `docker-compose.yml` ya tiene estas credenciales configuradas:
+Usar archivo `.env.local`:
 
 ```yaml
-POSTGRES_USER: syst_user
-POSTGRES_PASSWORD: syst_password_2024
-POSTGRES_DB: syst_db
+POSTGRES_USER: ${DB_USER}
+POSTGRES_PASSWORD: ${DB_PASSWORD}
+POSTGRES_DB: ${DB_NAME}
 ```
 
 ---
 
 ## 🔴 REDIS
 
-### Configuración Local
+### Variables de Entorno
 
 ```env
 REDIS_HOST=localhost

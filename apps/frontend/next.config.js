@@ -9,13 +9,33 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    domains: ['localhost'],
+    domains: ['localhost', 'sysbot-backend.vercel.app', '*.vercel.app'],
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.vercel.app',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.herokuapp.com',
+      },
+    ],
   },
+  // Rewrites - solo en desarrollo o si se especifica una URL válida
   async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
+    // No hacer rewrites en producción si no tenemos una URL válida
+    if (process.env.NODE_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL) {
+      return []
+    }
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'http://localhost:3001/api/v1/:path*',
+        destination: `${apiUrl}/:path*`,
       },
     ]
   },
