@@ -36,6 +36,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3003'
+
 export default function ClinicDashboardPage() {
   const { toast } = useToast()
   const selectedBusiness = useBusinessStore((state) => state.selectedBusiness)
@@ -995,7 +997,7 @@ export default function ClinicDashboardPage() {
                           <p className="text-xs font-semibold text-white truncate">{doc.name}</p>
                           <p className="text-[10px] text-slate-500 mt-0.5">{new Date(doc.createdAt).toLocaleDateString()}</p>
                         </div>
-                        <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3001'}/${doc.url}`} target="_blank" rel="noreferrer">
+                        <a href={`${BACKEND_URL}/${doc.url}`} target="_blank" rel="noreferrer">
                           <Button size="sm" variant="outline" className="border-white/10 text-indigo-400 hover:text-white rounded-lg">
                             <FileDown className="w-3.5 h-3.5 mr-1" />
                             Descargar
