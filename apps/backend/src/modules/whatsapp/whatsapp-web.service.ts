@@ -175,8 +175,11 @@ export class WhatsappWebService implements OnModuleInit {
 
     const phoneNumber = config?.whatsappWebNumber;
     if (!phoneNumber) {
-      console.error(`[WhatsApp Web] ❌ No phone number configured for businessId: ${businessId}. Please set whatsappWebNumber in bot_configs.`);
-      throw new Error('Phone number not configured for WhatsApp Web. Go to Settings → WhatsApp Web and configure your phone number.');
+      console.warn(`[WhatsApp Web] ⚠️ No phone number configured for businessId: ${businessId}. Skipping client initialization.`);
+      if (forceInit) {
+        throw new Error('Phone number not configured for WhatsApp Web. Go to Settings → WhatsApp Web and configure your phone number.');
+      }
+      return null;
     }
 
     const sessionsDir = join(process.cwd(), 'whatsapp_auth_sessions');
