@@ -31,9 +31,22 @@ const allowedOrigins = (config.server.frontendUrl || '')
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true)
-    if (allowedOrigins.length === 0) return callback(null, true)
-    if (allowedOrigins.includes(origin)) return callback(null, true)
-    return callback(new Error('Not allowed by CORS'))
+    
+    const cleanOrigin = origin.trim().replace(/\/$/, '')
+    const allowedSet = new Set(allowedOrigins.map(o => o.trim().replace(/\/$/, '')))
+    
+    if (
+      allowedOrigins.length === 0 ||
+      allowedSet.has(cleanOrigin) ||
+      cleanOrigin.endsWith('.vercel.app') ||
+      cleanOrigin.includes('localhost') ||
+      cleanOrigin.includes('127.0.0.1')
+    ) {
+      return callback(null, true)
+    }
+    
+    logger.warn(`❌ [CORS] Origin rejected: ${origin}`)
+    return callback(new Error(`Origin ${origin} not allowed by CORS`))
   },
   credentials: true,
 }
