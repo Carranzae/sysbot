@@ -2,6 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@syst/shared'],
+  outputFileTracing: false,
   eslint: {
     ignoreDuringBuilds: true,
   },
