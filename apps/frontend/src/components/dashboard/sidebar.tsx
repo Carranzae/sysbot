@@ -127,14 +127,14 @@ function SimpleNavItem({ item, pathname }: { item: NavItem; pathname: string }) 
       <Link
         href={item.href || ''}
         className={cn(
-          'flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-all duration-300 relative group',
+          'flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-300 relative group border border-transparent',
           active 
-            ? 'bg-primary/10 text-primary border border-primary/20 shadow-[0_4px_12px_rgba(99,102,241,0.05)]' 
-            : 'text-slate-400 hover:text-white hover:bg-white/5'
+            ? 'bg-primary/10 text-primary border-primary/20 shadow-[0_4px_12px_rgba(29,78,216,0.05)] font-syst' 
+            : 'text-slate-600 hover:text-primary hover:bg-slate-100/50'
         )}
       >
-        <Icon className={cn('h-4 w-4 transition-transform duration-300 group-hover:scale-105', active ? 'text-primary' : 'text-slate-500 group-hover:text-slate-300')} />
-        {item.title}
+        <Icon className={cn('h-4 w-4 transition-transform duration-300 group-hover:scale-105', active ? 'text-primary' : 'text-slate-500 group-hover:text-primary')} />
+        <span className="font-syst">{item.title}</span>
         {active && (
           <span className="absolute right-2 w-1.5 h-1.5 rounded-full bg-primary" />
         )}
@@ -150,11 +150,15 @@ export function Sidebar() {
   const navItems = mergeNav(baseNav, selectedBusiness ? industryNav[selectedBusiness.industryType] ?? [] : [])
 
   return (
-    <aside className="hidden md:flex md:w-64 lg:w-72 xl:w-80 h-screen sticky top-0 flex-col bg-luxury-glass border-r border-white/5 overflow-hidden z-50">
-      <div className="px-6 pt-8 pb-6 border-b border-white/5">
-        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">SISTEMA INTELIGENTE</div>
-        <h1 className="text-2xl font-bold tracking-tight text-white mt-1">SYSBOT</h1>
-        <p className="text-xs font-semibold text-zinc-400 mt-0.5">Control Center</p>
+    <aside className="hidden md:flex md:w-64 lg:w-72 xl:w-80 h-screen sticky top-0 flex-col bg-luxury-glass border-r border-slate-200/50 overflow-hidden z-50">
+      <div className="px-6 pt-8 pb-6 border-b border-slate-200/50">
+        <div className="flex items-center gap-3">
+          <img src="/sybot_logo.png" alt="Sybot Logo" className="h-10 w-10 object-contain rounded-xl shadow-sm bg-white p-1 border border-slate-100" />
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-800 font-syst">Sybot</h1>
+            <p className="text-[9px] font-black tracking-widest text-primary uppercase font-syst">Enterprise AI</p>
+          </div>
+        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-1">
@@ -165,11 +169,11 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="px-4 py-6 border-t border-white/5 bg-black/30 backdrop-blur-md">
+      <div className="px-4 py-6 border-t border-slate-200/50 bg-slate-50/50 backdrop-blur-md">
         {selectedBusiness ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.4)]">
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Negocio Activo</p>
-            <p className="text-base font-black text-white truncate">{selectedBusiness.name}</p>
+          <div className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-300">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Negocio Activo</p>
+            <p className="text-base font-extrabold text-slate-800 truncate font-syst">{selectedBusiness.name}</p>
             <p className="text-xs font-bold text-primary mt-0.5">
               {selectedBusiness.industryType.replace('_', ' ')}
             </p>
@@ -177,7 +181,7 @@ export function Sidebar() {
               {selectedBusiness.categories.slice(0, 3).map((category) => (
                 <span
                   key={category}
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 uppercase tracking-wide"
+                  className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 uppercase tracking-wide font-syst"
                 >
                   {category}
                 </span>
@@ -188,14 +192,14 @@ export function Sidebar() {
             </div>
             <Link
               href="/businesses"
-              className="mt-4 inline-flex items-center text-xs font-bold text-primary hover:underline hover:text-primary-foreground transition-colors group"
+              className="mt-4 inline-flex items-center text-xs font-bold text-primary hover:underline transition-colors group"
             >
               <span>Cambiar o configurar</span>
               <span className="ml-1 transition-transform group-hover:translate-x-1">&rarr;</span>
             </Link>
           </div>
         ) : (
-          <div className="rounded-xl border border-white/5 bg-white/5 p-4 text-xs font-bold text-slate-400">
+          <div className="rounded-2xl border border-slate-200/60 bg-white p-4 text-xs font-bold text-slate-500 shadow-sm">
             No has configurado ningún negocio.{' '}
             <Link href="/businesses" className="text-primary hover:underline">
               Configura el primero

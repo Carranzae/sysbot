@@ -88,27 +88,27 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/20 to-teal-50/20 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4 shadow-lg">
-            <Bot className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center mb-4">
+            <img src="/sybot_logo.png" alt="Sybot Logo" className="h-16 w-16 object-contain rounded-2xl shadow-md bg-white p-2 border border-slate-100/50" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">SYST</h1>
-          <p className="text-gray-600 mt-2">Sistema Inteligente de Bots</p>
+          <h1 className="text-3xl font-extrabold text-slate-800 font-syst">Sybot</h1>
+          <p className="text-primary font-black uppercase tracking-widest text-xs mt-1 font-syst">Enterprise AI</p>
         </div>
 
-        <Card className="shadow-xl border-0">
+        <Card className="shadow-xl border border-slate-100 rounded-2xl bg-white/80 backdrop-blur-md">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold">Iniciar Sesión</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-2xl font-extrabold text-slate-800 font-syst">Iniciar Sesión</CardTitle>
+            <CardDescription className="font-syst text-slate-500">
               Ingresa tus credenciales para acceder al panel
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Correo Electrónico</Label>
+                <Label htmlFor="email" className="font-semibold text-slate-600 font-syst">Correo Electrónico</Label>
                 <Input
                   id="email"
                   type="email"
@@ -117,11 +117,11 @@ export default function LoginPage() {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
                   disabled={loading}
-                  className="h-11"
+                  className="h-11 rounded-xl border-slate-200 focus:border-primary/50 font-syst"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Contraseña</Label>
+                <Label htmlFor="password" className="font-semibold text-slate-600 font-syst">Contraseña</Label>
                 <Input
                   id="password"
                   type="password"
@@ -130,10 +130,10 @@ export default function LoginPage() {
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   required
                   disabled={loading}
-                  className="h-11"
+                  className="h-11 rounded-xl border-slate-200 focus:border-primary/50 font-syst"
                 />
               </div>
-              <Button type="submit" className="w-full h-11" disabled={loading}>
+              <Button type="submit" className="w-full h-11 rounded-xl font-bold font-syst shadow-sm transition-all duration-300" disabled={loading}>
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -146,17 +146,17 @@ export default function LoginPage() {
             </form>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <div className="text-sm text-center text-gray-600">
+            <div className="text-sm text-center text-slate-500 font-syst">
               ¿No tienes una cuenta?{' '}
-              <Link href="/register" className="text-primary font-medium hover:underline">
+              <Link href="/register" className="text-primary font-bold hover:underline">
                 Regístrate aquí
               </Link>
             </div>
           </CardFooter>
         </Card>
 
-        <p className="text-center text-sm text-gray-500 mt-8">
-          © 2024 SYST. Todos los derechos reservados.
+        <p className="text-center text-sm text-slate-400 mt-8 font-syst">
+          © {new Date().getFullYear()} Sybot Enterprise AI. Todos los derechos reservados.
         </p>
       </div>
     </div>
