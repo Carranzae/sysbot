@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useBusinessStore } from '@/store/business'
-import { livechatApi } from '@/lib/api'
+import { livechatApi, whatsappApi } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { io, Socket } from 'socket.io-client'
 import { 
@@ -19,6 +19,7 @@ import { formatDateTime, cn } from '@/lib/utils'
 import { format, isToday, isYesterday, isSameDay, isWithinInterval, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { motion, AnimatePresence } from 'framer-motion'
+import QRCode from 'react-qr-code'
 
 interface Message {
   id: string
@@ -454,18 +455,46 @@ export default function MessagesPage() {
   }
 
   // Iniciar vinculación de WhatsApp (QR o pairing code)
+  const waitForWhatsAppQr = async (attempts = 12): Promise<string> => {
+    if (!selectedBusiness?.id) return ''
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const response = await whatsappApi.getQr(selectedBusiness.id)
+        const qr = response.data?.qr || ''
+        if (qr) return qr
+      } catch (error) {
+        console.error('Error polling WhatsApp QR:', error)
+      }
+      await new Promise(resolve => setTimeout(resolve, attempt < 4 ? 1500 : 3000))
+    }
+    return ''
+  }
+
   const handleStartWhatsApp = async () => {
     setConnectingWa(true)
     setQrCode(null)
     setPairingCode(null)
+    setShowQrModal(true)
     try {
       const res: any = await livechatApi.startWhatsApp(usePairingCode, pairingNumber, selectedBusiness?.id)
-      if (res.qr) {
-        setQrCode(res.qr)
-      } else if (res.code) {
-        setPairingCode(res.code)
+      const data = res?.data || res || {}
+      if (data.qr) {
+        setQrCode(data.qr)
+      } else if (data.code) {
+        setPairingCode(data.code)
+      } else {
+        const qr = await waitForWhatsAppQr()
+        if (qr) {
+          setQrCode(qr)
+        } else {
+          toast({
+            title: 'QR todavia en preparacion',
+            description: 'El servidor inicio WhatsApp Web, pero WhatsApp aun no entrego el QR. Revisa el numero en Integrations o intenta de nuevo.',
+            variant: 'destructive',
+          })
+          setShowQrModal(false)
+        }
       }
-      setShowQrModal(true)
     } catch (err) {
       toast({
         title: 'Error',
@@ -1653,7 +1682,11 @@ export default function MessagesPage() {
                   
                   {qrCode && (
                     <div className="bg-white p-4 rounded-2xl shadow-md border border-slate-100 mb-6">
-                      <img src={qrCode} alt="WhatsApp Web QR Code" className="w-[200px] h-[200px]" />
+                      {qrCode.startsWith('data:') ? (
+                        <img src={qrCode} alt="WhatsApp Web QR Code" className="w-[200px] h-[200px]" />
+                      ) : (
+                        <QRCode value={qrCode} size={200} />
+                      )}
                     </div>
                   )}
 

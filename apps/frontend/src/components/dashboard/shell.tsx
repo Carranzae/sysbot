@@ -227,7 +227,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       setWaPhoneNumber(phoneNumber)
       setWaInitializing(true)
       await whatsappApi.initWeb(selectedBusiness.id, phoneNumber)
-      await refreshQr()
+      const qr = await waitForQr()
+      if (!qr) {
+        toast({
+          title: 'QR todavia en preparacion',
+          description: 'El servidor inicio WhatsApp Web, pero WhatsApp aun no entrego el QR. Espera unos segundos o intenta de nuevo.',
+          variant: 'destructive',
+        })
+        return
+      }
       toast({
         title: 'Código QR Generado',
         description: 'Escanea el código QR con tu WhatsApp.',
@@ -243,13 +251,25 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const refreshQr = async () => {
-    if (!selectedBusiness) return
+  const waitForQr = async (attempts = 12): Promise<string> => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const qr = await refreshQr()
+      if (qr) return qr
+      await new Promise(resolve => setTimeout(resolve, attempt < 4 ? 1500 : 3000))
+    }
+    return ''
+  }
+
+  const refreshQr = async (): Promise<string> => {
+    if (!selectedBusiness) return ''
     try {
       const res = await whatsappApi.getQr(selectedBusiness.id)
-      setWaQrData(res.data.qr || '')
+      const qr = res.data.qr || ''
+      setWaQrData(qr)
+      return qr
     } catch (e) {
       console.error('Error refreshing QR:', e)
+      return ''
     }
   }
 

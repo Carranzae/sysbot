@@ -613,6 +613,15 @@ export default function BusinessSettingsPage() {
         }
     }
 
+    const waitForQrCode = async (attempts = 12): Promise<string> => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            const qr = await refreshQrCode()
+            if (qr) return qr
+            await new Promise(resolve => setTimeout(resolve, attempt < 4 ? 1500 : 3000))
+        }
+        return ''
+    }
+
     const handleConnectWhatsApp = async () => {
         if (!businessId) {
             toast({
@@ -643,9 +652,9 @@ export default function BusinessSettingsPage() {
             
             // Inicializar WhatsApp Web
             await whatsappApi.initWeb(businessId, phoneNumber)
+            const qr = await waitForQrCode()
             
             // Obtener el código QR inicial
-            await refreshQrCode()
             
             // Configurar refresco automático cada 15 segundos
             const refreshInterval = setInterval(async () => {
@@ -659,9 +668,18 @@ export default function BusinessSettingsPage() {
             
             // Guardar el interval ID para limpiarlo después
             ;(window as any).qrRefreshInterval = refreshInterval
+
+            if (!qr) {
+                toast({
+                    title: 'QR todavia en preparacion',
+                    description: 'El servidor inicio WhatsApp Web, pero WhatsApp aun no entrego el QR. Espera unos segundos o intenta de nuevo.',
+                    variant: 'destructive',
+                })
+                return
+            }
             
             toast({
-                title: 'QR generado',
+                title: qr ? 'QR listo' : 'QR todavia en preparacion',
                 description: 'Escanea el código QR con WhatsApp. El QR se actualizará automáticamente cada 15 segundos.',
             })
         } catch (error: any) {
@@ -674,18 +692,20 @@ export default function BusinessSettingsPage() {
         }
     }
 
-    const refreshQrCode = async () => {
-        if (!businessId) return
+    const refreshQrCode = async (): Promise<string> => {
+        if (!businessId) return ''
         
         try {
             const response = await whatsappApi.getQr(businessId)
+            const qr = response.data.qr || ''
             setWhatsappForm(prev => ({
                 ...prev,
                 webConnection: {
                     ...prev.webConnection,
-                    qrCodeData: response.data.qr || ''
+                    qrCodeData: qr
                 }
             }))
+            return qr
         } catch (error: any) {
             console.error('Error getting QR:', error)
             throw error
@@ -1308,6 +1328,13 @@ export default function BusinessSettingsPage() {
                                         >
                                             Login con Facebook
                                         </Button>
+                                        <Button
+                                            onClick={() => router.push('/channels')}
+                                            variant="outline"
+                                            className="mt-2 w-full border-slate-200 text-slate-650 font-extrabold text-xs h-10 rounded-xl bg-white hover:bg-slate-50"
+                                        >
+                                            Configurar Meta API manual
+                                        </Button>
                                     </Card>
 
                                     {/* Facebook Messenger */}
@@ -1329,6 +1356,13 @@ export default function BusinessSettingsPage() {
                                             className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
                                         >
                                             Conectar Página
+                                        </Button>
+                                        <Button
+                                            onClick={() => router.push('/channels')}
+                                            variant="outline"
+                                            className="mt-2 w-full border-slate-200 text-slate-650 font-extrabold text-xs h-10 rounded-xl bg-white hover:bg-slate-50"
+                                        >
+                                            Configurar Meta API manual
                                         </Button>
                                     </Card>
 
