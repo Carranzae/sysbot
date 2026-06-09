@@ -1,4 +1,4 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { EmailService } from './email.service';
 
 @Controller('email')
@@ -15,5 +15,15 @@ export class EmailController {
   async handleCallback(@Body() { code, businessId }: { code: string; businessId: string }) {
     await this.emailService.handleCallback(code, businessId);
     return { success: true };
+  }
+
+  @Post('gmail/sync')
+  async syncInbox(@Query('businessId') businessId: string, @Query('limit') limit?: string) {
+    return this.emailService.syncInbox(businessId, limit ? Number(limit) : 25);
+  }
+
+  @Get('gmail/status')
+  async getInboxStatus(@Query('businessId') businessId: string) {
+    return this.emailService.getInboxStatus(businessId);
   }
 }

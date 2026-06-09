@@ -15,11 +15,6 @@ export class MessagesController {
     return this.messagesService.findAll(businessId, limit ? parseInt(limit) : 50);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.messagesService.findOne(id);
-  }
-
   @Get('stats')
   getStats(@Query('businessId') businessId: string) {
     return this.messagesService.getMessageStats(businessId);
@@ -36,5 +31,10 @@ export class MessagesController {
       phoneNumber,
       limit ? parseInt(limit) : 10,
     );
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.messagesService.findOne(id);
   }
 }

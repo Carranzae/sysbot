@@ -40,13 +40,19 @@ export class SwarmOrchestratorService {
     const blockList = await this.prisma.securityBlocklist.findFirst({
       where: {
         businessId,
-        OR: [
-          { targetType: 'IP', targetValue: senderIp },
-          { targetType: 'PHONE', targetValue: senderPhone },
-        ],
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gte: new Date() } },
+        AND: [
+          {
+            OR: [
+              { targetType: 'IP', targetValue: senderIp },
+              { targetType: 'PHONE', targetValue: senderPhone },
+            ],
+          },
+          {
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gte: new Date() } },
+            ],
+          },
         ],
       },
     });

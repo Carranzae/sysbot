@@ -317,7 +317,7 @@ export default function ProfilePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-600">Miembro desde</span>
                     <span className="text-sm font-medium">
-                      {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'}
+                      {(user as any)?.createdAt ? new Date((user as any).createdAt).toLocaleDateString() : '-'}
                     </span>
                   </div>
                 </div>

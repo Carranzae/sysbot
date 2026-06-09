@@ -392,6 +392,7 @@ model Contact {
   email              String?
   source             ContactSource       @default(WHATSAPP)
   autoCreated        Boolean             @default(false)
+  isAiPaused         Boolean             @default(false)
   metadata           Json?
   lastIncomingAt     DateTime?
   lastOutgoingAt     DateTime?

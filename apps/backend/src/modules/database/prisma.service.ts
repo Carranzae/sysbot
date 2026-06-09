@@ -19,6 +19,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   private runMigrations() {
+    if (process.env.AUTO_RUN_MIGRATIONS !== 'true') {
+      this.logger.log('ℹ️ Automatic migrations disabled. Run Prisma migrations during deploy.');
+      return;
+    }
+
     try {
       // Find schema.prisma file in monorepo
       const possiblePaths = [
@@ -43,15 +48,28 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
       this.logger.log(`⏳ Running database migrations using schema: ${schemaPath}`);
       
-      // Run prisma migrate deploy
-      execSync(`npx prisma migrate deploy --schema="${schemaPath}"`, {
-        stdio: 'inherit',
-        env: process.env,
-      });
-      
-      this.logger.log('✅ Database migrations applied successfully');
+      try {
+        // Run prisma migrate deploy
+        execSync(`npx prisma migrate deploy --schema="${schemaPath}"`, {
+          stdio: 'pipe',
+          env: process.env,
+        });
+        this.logger.log('✅ Database migrations applied successfully');
+      } catch (err: any) {
+        this.logger.warn('⚠️ migrate deploy failed. Attempting db push fallback...');
+        try {
+          execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate`, {
+            stdio: 'pipe',
+            env: process.env,
+          });
+          this.logger.log('✅ Database schema synchronized using prisma db push');
+        } catch (pushErr: any) {
+          const stderr = pushErr.stderr?.toString() || pushErr.message || String(pushErr);
+          this.logger.error(`❌ Failed to run database migrations and db push fallback: ${stderr}`);
+        }
+      }
     } catch (err: any) {
-      this.logger.error(`❌ Failed to run database migrations: ${err.message || err}`);
+      this.logger.error(`❌ Failed during migration check execution: ${err.message || err}`);
     }
   }
 
@@ -61,7 +79,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         if (attempt === 1) {
-          this.logger.debug(`DATABASE_URL: ${process.env.DATABASE_URL || 'undefined'}`);
+          const databaseUrl = process.env.DATABASE_URL?.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:****@');
+          this.logger.debug(`DATABASE_URL: ${databaseUrl || 'undefined'}`);
         }
         await this.$connect();
         this.isConnected = true;

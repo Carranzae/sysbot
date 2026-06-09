@@ -245,7 +245,13 @@ export class TelegramService {
       metadata: payload,
     })
 
-    if (config.autoReply !== false && text) {
+    // Check if AI is paused for this contact
+    const contact = await this.prisma.contact.findFirst({
+      where: { businessId, phone: chatId },
+      select: { isAiPaused: true },
+    });
+
+    if (config.autoReply !== false && text && !contact?.isAiPaused) {
       const aiResponse = await this.aiService.generateResponse(businessId, text, chatId, {
         platform: 'TELEGRAM',
         senderId: chatId,

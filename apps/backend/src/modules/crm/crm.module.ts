@@ -13,6 +13,8 @@ import { HubspotCrmAdapter } from './adapters/hubspot.adapter';
 import { SalesforceCrmAdapter } from './adapters/salesforce.adapter';
 import { ZohoCrmAdapter } from './adapters/zoho.adapter';
 import { GoogleSheetsAdapter } from './adapters/google-sheets.adapter';
+import { PipedriveCrmAdapter } from './adapters/pipedrive.adapter';
+import { MondayCrmAdapter } from './adapters/monday.adapter';
 import { CRMChannelMappingService } from './crm-channel-mapping.service';
 
 @Module({
@@ -28,8 +30,10 @@ import { CRMChannelMappingService } from './crm-channel-mapping.service';
     SalesforceCrmAdapter,
     ZohoCrmAdapter,
     GoogleSheetsAdapter,
+    PipedriveCrmAdapter,
+    MondayCrmAdapter,
     CRMChannelMappingService,
   ],
-  exports: [CRMFactoryService, CRMSyncService, CRMChannelMappingService, GoogleSheetsAdapter],
+  exports: [CRMFactoryService, CRMSyncService, CRMChannelMappingService, GoogleSheetsAdapter, PipedriveCrmAdapter, MondayCrmAdapter],
 })
 export class CRMModule {}

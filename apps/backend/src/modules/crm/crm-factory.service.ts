@@ -7,6 +7,8 @@ import { HubspotCrmAdapter } from './adapters/hubspot.adapter';
 import { SalesforceCrmAdapter } from './adapters/salesforce.adapter';
 import { ZohoCrmAdapter } from './adapters/zoho.adapter';
 import { GoogleSheetsAdapter } from './adapters/google-sheets.adapter';
+import { PipedriveCrmAdapter } from './adapters/pipedrive.adapter';
+import { MondayCrmAdapter } from './adapters/monday.adapter';
 
 @Injectable()
 export class CRMFactoryService {
@@ -18,7 +20,9 @@ export class CRMFactoryService {
     private hubspotAdapter: HubspotCrmAdapter,
     private salesforceAdapter: SalesforceCrmAdapter,
     private zohoAdapter: ZohoCrmAdapter,
-    private googleSheetsAdapter: GoogleSheetsAdapter
+    private googleSheetsAdapter: GoogleSheetsAdapter,
+    private pipedriveAdapter: PipedriveCrmAdapter,
+    private mondayAdapter: MondayCrmAdapter
   ) {}
 
   createAdapter(provider: CRMProvider): CRMAdapter {
@@ -38,6 +42,12 @@ export class CRMFactoryService {
       case CRMProvider.GOOGLE_SHEETS:
         this.logger.log('[CRMFactory] Using Google Sheets adapter');
         return this.googleSheetsAdapter;
+      case CRMProvider.PIPEDRIVE:
+        this.logger.log('[CRMFactory] Using Pipedrive adapter');
+        return this.pipedriveAdapter;
+      case CRMProvider.MONDAY:
+        this.logger.log('[CRMFactory] Using Monday adapter');
+        return this.mondayAdapter;
       default:
         throw new Error(`CRM provider ${provider} not supported`);
     }

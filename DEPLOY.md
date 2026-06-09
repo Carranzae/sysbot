@@ -1,73 +1,71 @@
-# Guía de Despliegue de Sysbot & LiveChat
+# Guia de despliegue de Sysbot
 
-Este repositorio es un monorepo que contiene dos sistemas completos independientes (cada uno con su propio frontend y backend):
+Sysbot se despliega como un monorepo pnpm con dos servicios principales:
 
-1. **Sysbot** (Panel Principal y Bot con IA)
-   - **Backend**: `apps/backend` (NestJS con NestCLI y Prisma)
-   - **Frontend**: `apps/frontend` (Next.js 14)
-2. **LiveChat** (Módulo de Chat en Vivo y WhatsApp)
-   - **Backend**: `LIVE CHAT/backend` (Node.js/Express y Socket.io)
-   - **Frontend**: `LIVE CHAT/frontend` (Vite, React y TS)
+1. **Backend API**: `apps/backend`
+   - NestJS, Prisma, PostgreSQL, Redis, Qdrant/Vector DB y WebSocket.
+   - Despliegue recomendado: Railway.
+2. **Frontend dashboard**: `apps/frontend`
+   - Next.js 14 con panel administrativo, CRM, omnicanal, canales e IA.
+   - Despliegue recomendado: Vercel.
 
----
+El antiguo proyecto standalone `LIVE CHAT/` queda retirado del despliegue principal. La bandeja omnicanal y el puente livechat se gestionan desde el backend NestJS.
 
-## 🚀 Despliegue de Backends (en Railway)
+## Railway backend
 
-Recomendamos utilizar **Railway** para los backends, ya que soporta Dockerfiles, PostgreSQL y Redis de manera nativa.
+Configura un servicio Railway conectado al repositorio:
 
-### 1. Sysbot Backend (`apps/backend`)
-- Crea un nuevo servicio en Railway conectado a tu repositorio de GitHub.
-- En la pestaña **Settings** (Configuración) de ese servicio, define:
-  - **Dockerfile Path**: `docker/backend.Dockerfile`
-  - **Build Context**: `/` (la raíz del repositorio)
-- Agrega las siguientes variables de entorno principales:
-  - `DATABASE_URL`: URL de conexión a tu base de datos PostgreSQL (puedes crearla en Railway).
-  - `REDIS_HOST`: Host de tu servicio Redis (puedes crearlo en Railway).
-  - `REDIS_PORT`: `6379`
-  - `JWT_SECRET`: Una clave segura para tokens de sesión.
-  - `OPENAI_API_KEY`: Tu clave API de OpenAI.
+- **Root / Build context**: raiz del repositorio.
+- **Dockerfile Path**: `docker/backend.Dockerfile`.
+- **Start command**: el definido por la imagen o `node apps/backend/dist/main.js`.
 
-### 2. LiveChat Backend (`LIVE CHAT/backend`)
-- Crea otro servicio independiente en Railway conectado al mismo repositorio de GitHub.
-- En la pestaña **Settings** de este servicio, define:
-  - **Root Directory**: `LIVE CHAT/backend` (Railway buscará el `Dockerfile` y ejecutará la compilación dentro de esta carpeta de forma aislada).
-- Agrega las variables de entorno principales:
-  - `PORT`: `4000` (o el puerto que prefieras)
-  - `DATABASE_URL`: URL de otra base de datos de PostgreSQL (o la misma con diferente base de datos/schema).
-  - `REDIS_URL`: URL de conexión a Redis (`redis://...`).
-  - `JWT_SECRET`: Clave segura.
-  - `GEMINI_API_KEY` o `GROQ_API_KEY` (si utilizas soporte de bots).
+Variables principales:
 
----
+- `NODE_ENV=production`
+- `PORT`
+- `DATABASE_URL`
+- `REDIS_HOST`
+- `REDIS_PORT`
+- `REDIS_PASSWORD`
+- `JWT_SECRET`
+- `CORS_ORIGINS`
+- `BACKEND_PUBLIC_URL`
+- `QDRANT_URL`
+- `OPENAI_API_KEY` o proveedor IA equivalente
+- Credenciales Meta/WhatsApp/Gmail/Twilio segun canales activos
 
-## 💻 Despliegue de Frontends (en Netlify)
+Antes del arranque productivo ejecuta migraciones con:
 
-Recomendamos usar **Netlify** para los frontends. Netlify compilará el código estático y lo servirá de manera óptima a través de su CDN.
+```bash
+pnpm --filter @syst/backend prisma migrate deploy --schema=../../packages/database/prisma/schema.prisma
+```
 
-### 1. Sysbot Frontend (`apps/frontend`)
-- Crea un nuevo sitio en Netlify conectado a tu repositorio de GitHub.
-- Deja el **Base directory** (Directorio base) vacío (o apunta a la raíz `/`) para que use el archivo `netlify.toml` de la raíz del monorepo.
-- El archivo `netlify.toml` en la raíz se encargará de configurar automáticamente:
-  - **Build command**: `pnpm --filter @syst/frontend build`
-  - **Publish directory**: `apps/frontend/.next`
-- Agrega las siguientes variables de entorno en Netlify (**Site configuration -> Environment variables**):
-  - `NETLIFY_USE_PNPM`: `true`
-  - `NODE_VERSION`: `20`
-  - `NEXT_PUBLIC_API_URL`: URL pública de tu Sysbot Backend desplegado en Railway (ej: `https://sysbot-backend.up.railway.app/api/v1`).
-  - `NEXT_PUBLIC_WS_URL`: URL de WebSocket del Sysbot Backend (ej: `wss://sysbot-backend.up.railway.app`).
+## Vercel frontend
 
-### 2. LiveChat Frontend (`LIVE CHAT/frontend`)
-- Crea otro sitio independiente en Netlify conectado a tu repositorio.
-- Configura los ajustes de compilación:
-  - **Base directory**: `LIVE CHAT/frontend`
-  - **Build command**: `npm run build`
-  - **Publish directory**: `LIVE CHAT/frontend/dist`
-- Agrega las variables de entorno:
-  - `VITE_API_URL`: URL pública de tu LiveChat Backend en Railway (ej: `https://livechat-backend.up.railway.app`).
+Configura un proyecto Vercel conectado al repositorio:
 
----
+- **Framework**: Next.js.
+- **Root Directory**: `apps/frontend` o raiz con build filtrado.
+- **Build command**: `pnpm --filter @syst/frontend build`.
+- **Output**: Next.js default.
 
-## 🗄️ Configuración de Bases de Datos
+Variables principales:
 
-1. **PostgreSQL**: Puedes crear una base de datos PostgreSQL compartida o dos independientes en Railway. Asegúrate de pasar la cadena de conexión correspondiente (`DATABASE_URL`) a cada backend.
-2. **Redis**: Crea un plugin de Redis en Railway y comparte la URL de conexión con ambos servicios.
+- `NEXT_PUBLIC_API_URL=https://TU_BACKEND_RAILWAY/api/v1`
+- `NEXT_PUBLIC_WS_URL=wss://TU_BACKEND_RAILWAY`
+
+## Servicios gestionados
+
+- PostgreSQL con pooler para produccion.
+- Redis gestionado para BullMQ, rate limits y jobs.
+- Qdrant o Vector DB gestionado para RAG.
+- Dominios HTTPS publicos para webhooks de WhatsApp, Meta, Gmail y Twilio.
+
+## Checklist de produccion
+
+- Ejecutar `pnpm --filter @syst/backend build`.
+- Ejecutar `pnpm --filter @syst/frontend build`.
+- Validar Prisma schema y migraciones.
+- Verificar `/api/v1/channels/:businessId/status`.
+- Verificar `/api/v1/omnichannel/conversations`.
+- Probar login admin, onboarding, conexion de canal, carga RAG y envio de mensaje.

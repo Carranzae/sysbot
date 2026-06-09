@@ -8,27 +8,27 @@ export class BotRulesController {
   constructor(private readonly botRulesService: BotRulesService) {}
 
   @Post()
-  create(@Body() createBotRuleDto: any) {
-    return this.botRulesService.create(createBotRuleDto);
+  create(@Body() createBotRuleDto: any, @Query('businessId') businessId?: string) {
+    return this.botRulesService.create(businessId || createBotRuleDto.businessId, createBotRuleDto);
   }
 
   @Get()
   findAll(@Query('businessId') businessId?: string) {
-    return this.botRulesService.findAll(businessId);
+    return this.botRulesService.findAll(businessId as string);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.botRulesService.findOne(id);
+  findOne(@Param('id') id: string, @Query('businessId') businessId?: string) {
+    return this.botRulesService.findOne(id, businessId as string);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateBotRuleDto: any) {
-    return this.botRulesService.update(id, updateBotRuleDto);
+  update(@Param('id') id: string, @Body() updateBotRuleDto: any, @Query('businessId') businessId?: string) {
+    return this.botRulesService.update(id, businessId || updateBotRuleDto.businessId, updateBotRuleDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.botRulesService.remove(id);
+  remove(@Param('id') id: string, @Query('businessId') businessId?: string) {
+    return this.botRulesService.remove(id, businessId as string);
   }
 }

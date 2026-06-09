@@ -61,6 +61,11 @@ interface AdminIndustryPanelProps {
 
 export function AdminIndustryPanel({ onRefresh }: AdminIndustryPanelProps) {
   const { toast } = useToast();
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+  });
   const [loading, setLoading] = useState(false);
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -294,11 +299,9 @@ export function AdminIndustryPanel({ onRefresh }: AdminIndustryPanelProps) {
       setUpdating(industryType);
       
       // Llamar a la API para actualizar todos los negocios de la industria
-      const response = await fetch(`/api/admin/industries/${industryType}/audio`, {
+      const response = await fetch(`${apiBase}/admin/industries/${industryType}/audio`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ audioEnabled: enabled }),
       });
 
@@ -349,11 +352,9 @@ export function AdminIndustryPanel({ onRefresh }: AdminIndustryPanelProps) {
       setUpdating(industryType);
       
       // Llamar a la API para actualizar todos los negocios de la industria
-      const response = await fetch(`/api/admin/industries/${industryType}/calls`, {
+      const response = await fetch(`${apiBase}/admin/industries/${industryType}/calls`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ callEnabled: enabled }),
       });
 
@@ -404,11 +405,9 @@ export function AdminIndustryPanel({ onRefresh }: AdminIndustryPanelProps) {
       setUpdating(industryType);
       
       // Llamar a la API para actualizar todos los negocios de la industria
-      const response = await fetch(`/api/admin/industries/${industryType}/autoreply`, {
+      const response = await fetch(`${apiBase}/admin/industries/${industryType}/autoreply`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ autoReply: enabled }),
       });
 
@@ -459,11 +458,9 @@ export function AdminIndustryPanel({ onRefresh }: AdminIndustryPanelProps) {
       setUpdating(industryType);
       
       // Llamar a la API para actualizar todos los negocios de la industria
-      const response = await fetch(`/api/admin/industries/${industryType}/whatsapp`, {
+      const response = await fetch(`${apiBase}/admin/industries/${industryType}/whatsapp`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ whatsappEnabled: enabled }),
       });
 

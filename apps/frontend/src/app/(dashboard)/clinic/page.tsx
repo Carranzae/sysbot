@@ -36,7 +36,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3003'
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3001'
 
 export default function ClinicDashboardPage() {
   const { toast } = useToast()
@@ -173,7 +173,7 @@ export default function ClinicDashboardPage() {
     if (!selectedBusiness) return
     setLoadingSupplies(true)
     try {
-      const res = await clinicApi.getSupplies(selectedBusiness.id)
+      const res = await clinicApi.getProcedureSupplies(selectedBusiness.id)
       setSupplies(res.data || [])
     } catch (err) {
       console.error(err)

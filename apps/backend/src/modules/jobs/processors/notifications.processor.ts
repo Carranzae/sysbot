@@ -114,11 +114,10 @@ export class NotificationsProcessor {
       }
 
       // 3. Crear notificación interna como fallback
-      await this.notificationsService.create({
-        businessId: appointment.businessId,
+      await this.notificationsService.create(appointment.businessId, {
         title: '📅 Recordatorio de Cita Enviado',
         message: `Recordatorio enviado a ${appointment.customerName} (${appointment.customerPhone}) para el ${fechaFormateada} a las ${horaFormateada}.`,
-        type: 'APPOINTMENT',
+        type: 'APPOINTMENT_REMINDER',
       });
 
       this.logger.log(`[Recordatorio] ✅ Completado para cita ${appointmentId}. Enviado: ${sent}`);
@@ -128,3 +127,4 @@ export class NotificationsProcessor {
     }
   }
 }
+

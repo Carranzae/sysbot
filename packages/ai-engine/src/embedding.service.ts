@@ -8,6 +8,15 @@ export interface EmbeddingService {
   createEmbeddings(texts: string[]): Promise<number[][]>;
 }
 
+const cleanErrorBody = (body: string, status: number, statusText: string): string => {
+  if (!body) return '';
+  const trimmed = body.trim();
+  if (trimmed.includes('<html') || trimmed.includes('<!DOCTYPE')) {
+    return `[HTML Error Response: ${status} ${statusText}]`;
+  }
+  return trimmed.length > 200 ? trimmed.substring(0, 200) + '...' : trimmed;
+};
+
 // Cohere Embedding Service
 export class CohereEmbeddingService implements EmbeddingService {
   private apiKey: string;
@@ -161,7 +170,7 @@ export class HuggingFaceEmbeddingService implements EmbeddingService {
           return this.createEmbedding(text);
         }
         const body = await response.text().catch(() => '');
-        throw new Error(`Hugging Face API error: ${response.status} ${response.statusText} ${body}`);
+        throw new Error(`Hugging Face API error: ${response.status} ${response.statusText} ${cleanErrorBody(body, response.status, response.statusText)}`);
       }
 
       const result = await response.json();
@@ -176,8 +185,7 @@ export class HuggingFaceEmbeddingService implements EmbeddingService {
       }
 
       return result;
-    } catch (error) {
-      console.error('Error creating embedding with Hugging Face:', error);
+    } catch (error: any) {
       throw error;
     }
   }
@@ -251,7 +259,7 @@ export class HuggingFaceEmbeddingService implements EmbeddingService {
               
               if (!retryResponse.ok) {
                 const body = await retryResponse.text().catch(() => '');
-                throw new Error(`Hugging Face API error after retry: ${retryResponse.status} ${retryResponse.statusText} ${body}`);
+                throw new Error(`Hugging Face API error after retry: ${retryResponse.status} ${retryResponse.statusText} ${cleanErrorBody(body, retryResponse.status, retryResponse.statusText)}`);
               }
               
               const retryResult = await retryResponse.json();
@@ -262,7 +270,7 @@ export class HuggingFaceEmbeddingService implements EmbeddingService {
               continue;
             }
             const body = await response.text().catch(() => '');
-            throw new Error(`Hugging Face API error: ${response.status} ${response.statusText} ${body}`);
+            throw new Error(`Hugging Face API error: ${response.status} ${response.statusText} ${cleanErrorBody(body, response.status, response.statusText)}`);
           }
 
           const result = await response.json();
@@ -293,8 +301,8 @@ export class HuggingFaceEmbeddingService implements EmbeddingService {
 
       console.log(`[EmbeddingService] All ${texts.length} embeddings created successfully`);
       return allEmbeddings;
-    } catch (error) {
-      console.error('[EmbeddingService] Error creating embeddings with Hugging Face:', error);
+    } catch (error: any) {
+      console.warn('[EmbeddingService] Error creating embeddings with Hugging Face:', error?.message || String(error));
       throw error;
     }
   }
@@ -716,7 +724,6 @@ export class EmbeddingServiceFactory {
       const embedding = await service.createEmbedding(testText);
       return Array.isArray(embedding) && embedding.length > 0;
     } catch (error) {
-      console.warn(`Service test failed:`, error instanceof Error ? error.message : String(error));
       return false;
     }
   }

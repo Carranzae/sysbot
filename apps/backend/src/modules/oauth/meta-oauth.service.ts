@@ -36,7 +36,7 @@ export class MetaOauthService {
     // Must match exactly the value configured in Meta Developer Console.
     return (
       this.config.get<string>('META_OAUTH_REDIRECT_URI') ||
-      `${this.config.get<string>('BACKEND_PUBLIC_URL') || 'http://localhost:3003'}/api/v1/oauth/meta/callback`
+      `${this.config.get<string>('BACKEND_PUBLIC_URL') || 'http://localhost:3001'}/api/v1/oauth/meta/callback`
     );
   }
 

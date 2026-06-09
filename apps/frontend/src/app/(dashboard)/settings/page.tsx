@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import QRCode from 'react-qr-code'
 import { businessApi, whatsappApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -37,10 +38,13 @@ import {
     Eye,
     EyeOff,
     Zap,
-    Bot
+    Bot,
+    Instagram,
+    Plus
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { useBusinessStore } from '@/store/business'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const LANGUAGE_OPTIONS = [{ value: 'es', label: 'Español' }]
 const CURRENCY_OPTIONS = [{ value: 'PEN', label: 'Sol peruano (PEN)' }]
@@ -92,6 +96,37 @@ export default function BusinessSettingsPage() {
     const [telegramBotToken, setTelegramBotToken] = useState('')
     const [telegramConnected, setTelegramConnected] = useState(false)
     const [telegramSaving, setTelegramSaving] = useState(false)
+    const [activeTab, setActiveTab] = useState<'general' | 'integrations' | 'security' | 'billing' | 'apikeys' | 'team'>('general')
+    
+    // helper to save AI parameters
+    const handleSaveAiSettings = async () => {
+        if (!businessId) return
+        try {
+            setSaving(true)
+            await businessApi.updateBotConfig(businessId, {
+                aiProvider: aiForm.aiProvider,
+                aiApiKey: aiForm.aiApiKey,
+                aiModel: aiForm.aiModel,
+                aiBaseUrl: aiForm.aiBaseUrl,
+                temperature: Number(aiForm.temperature),
+                maxTokens: Number(aiForm.maxTokens),
+            })
+            toast({
+                title: 'Configuración de IA guardada',
+                description: 'Las credenciales y parámetros de IA se han guardado correctamente.',
+            })
+        } catch (error: any) {
+            console.error('Error saving AI settings:', error)
+            toast({
+                title: 'Error',
+                description: error.response?.data?.message || 'No se pudo guardar la configuración de IA',
+                variant: 'destructive',
+            })
+        } finally {
+            setSaving(false)
+        }
+    }
+
     // Form states
     const [paymentForm, setPaymentForm] = useState({
         email: '',
@@ -654,6 +689,15 @@ export default function BusinessSettingsPage() {
         loadSettings()
     }, [businessId])
 
+    useEffect(() => {
+        const tab = searchParams?.get('tab')
+        if (tab === 'billing') {
+            setActiveTab('billing')
+        } else if (tab === 'integrations') {
+            setActiveTab('integrations')
+        }
+    }, [searchParams])
+
     // Verificar estado de WhatsApp periódicamente cuando hay QR activo
     useEffect(() => {
         if (!businessId || !whatsappForm.webConnection.qrCodeData) return
@@ -740,760 +784,907 @@ export default function BusinessSettingsPage() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 max-w-[1600px] mx-auto p-4 md:p-6 bg-slate-50/30 rounded-3xl min-h-screen text-slate-700 font-sans">
             {/* Header */}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/60 shadow-xs">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-white">
-                        Configuración del Negocio
-                    </h1>
-                    <p className="text-slate-500 mt-1">
-                        Personaliza los pagos, contacto y preferencias de tu negocio
-                    </p>
+                    <h1 className="text-2xl font-black text-slate-800 font-syst">Configuración de Canales y Ajustes</h1>
+                    <p className="text-slate-500 text-xs mt-1 font-medium">Personaliza los accesos, pasarelas de pago, integraciones omnicanal y agentes de IA.</p>
                 </div>
-                <Button onClick={loadSettings} variant="outline" size="sm">
+                <Button onClick={loadSettings} variant="outline" size="sm" className="border-slate-200 hover:border-blue-600 text-slate-600 h-9 rounded-xl text-xs font-bold bg-white">
                     <RefreshCw className="h-4 w-4 mr-2" />
-                    Actualizar
+                    Actualizar Estado
                 </Button>
             </div>
 
-            <Tabs defaultValue="payments" className="space-y-6">
-                <TabsList className="grid w-full grid-cols-7">
-                    <TabsTrigger value="payments" className="gap-2">
-                        <CreditCard className="h-4 w-4" />
-                        Pagos
-                    </TabsTrigger>
-                    <TabsTrigger value="contact" className="gap-2">
-                        <Phone className="h-4 w-4" />
-                        Contacto
-                    </TabsTrigger>
-                    <TabsTrigger value="whatsapp" className="gap-2">
-                        <MessageCircle className="h-4 w-4" />
-                        WhatsApp
-                    </TabsTrigger>
-                    <TabsTrigger value="hours" className="gap-2">
-                        <Clock className="h-4 w-4" />
-                        Horarios
-                    </TabsTrigger>
-                    <TabsTrigger value="preferences" className="gap-2">
-                        <SettingsIcon className="h-4 w-4" />
-                        Preferencias
-                    </TabsTrigger>
-                    <TabsTrigger value="ai-advanced" className="gap-2">
-                        <Brain className="h-4 w-4" />
-                        IA Avanzada
-                    </TabsTrigger>
-                    <TabsTrigger value="telegram" className="gap-2">
-                        <Send className="h-4 w-4" />
-                        Telegram
-                    </TabsTrigger>
-                </TabsList>
+            <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+                
+                {/* Left Sub-Sidebar Menu */}
+                <div className="w-full lg:w-64 shrink-0 bg-white border border-slate-200/60 rounded-3xl p-5 space-y-1.5 shadow-xs flex flex-col h-fit">
+                    <button
+                        onClick={() => setActiveTab('general')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'general'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <SettingsIcon className="w-4 h-4" />
+                        General y Horarios
+                    </button>
+                    
+                    <button
+                        onClick={() => setActiveTab('integrations')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'integrations'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <Zap className="w-4 h-4" />
+                        Integraciones (Canales)
+                    </button>
+                    
+                    <button
+                        onClick={() => setActiveTab('security')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'security'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <Shield className="w-4 h-4" />
+                        Seguridad y Modelos IA
+                    </button>
+                    
+                    <button
+                        onClick={() => setActiveTab('billing')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'billing'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <CreditCard className="w-4 h-4" />
+                        Facturación y Pagos
+                    </button>
+                    
+                    <button
+                        onClick={() => setActiveTab('apikeys')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'apikeys'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <Key className="w-4 h-4" />
+                        API Keys
+                    </button>
+                    
+                    <button
+                        onClick={() => setActiveTab('team')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'team'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <Users className="w-4 h-4" />
+                        Equipo y Permisos
+                    </button>
+                </div>
 
-                {/* Payment Settings */}
-                <TabsContent value="payments" className="space-y-6">
-                    <Card className="bg-luxury-glass border-white/5 shadow-[0_0_15px_rgba(255,255,255,0.02)] text-slate-100">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <CreditCard className="h-5 w-5" />
-                                Configuración de Pagos
-                            </CardTitle>
-                            <CardDescription>
-                                Configura cómo recibirás pagos y notificaciones de tu negocio
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2">
-                                    <Label htmlFor="payment-email">Correo para Pagos</Label>
-                                    <Input
-                                        id="payment-email"
-                                        type="email"
-                                        placeholder="pagos@tunegocio.com"
-                                        value={paymentForm.email}
-                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, email: e.target.value }))}
-                                    />
-                                    <p className="text-xs text-slate-500">
-                                        Recibirás notificaciones de pagos en este correo
-                                    </p>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="payment-gateway">Pasarela de Pago</Label>
-                                    <Select value={paymentForm.gateway} onValueChange={(value) => setPaymentForm(prev => ({ ...prev, gateway: value }))}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Selecciona pasarela" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="stripe">Stripe</SelectItem>
-                                            <SelectItem value="paypal">PayPal</SelectItem>
-                                            <SelectItem value="mercadopago">MercadoPago</SelectItem>
-                                            <SelectItem value="transbank">Transbank</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="whatsapp-number">Número de WhatsApp</Label>
-                                    <Input
-                                        id="whatsapp-number"
-                                        placeholder="+56912345678"
-                                        value={paymentForm.whatsappNumber}
-                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, whatsappNumber: e.target.value }))}
-                                    />
-                                    <p className="text-xs text-slate-500">
-                                        Número para recibir confirmaciones de pago
-                                    </p>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="webhook-url">URL de Webhook</Label>
-                                    <Input
-                                        id="webhook-url"
-                                        placeholder="https://tu-api.com/webhooks/payments"
-                                        value={paymentForm.webhookUrl}
-                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, webhookUrl: e.target.value }))}
-                                    />
-                                    <p className="text-xs text-slate-500">
-                                        Endpoint para recibir actualizaciones de pago
-                                    </p>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="flex justify-end">
-                                <Button onClick={handleSavePaymentSettings} disabled={saving}>
-                                    {saving ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                            Guardando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            Guardar Configuración de Pagos
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                {/* Contact Settings */}
-                <TabsContent value="contact" className="space-y-6">
-                    <Card className="bg-luxury-glass border-white/5 shadow-[0_0_15px_rgba(255,255,255,0.02)] text-slate-100">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Mail className="h-5 w-5" />
-                                Configuración de Contacto
-                            </CardTitle>
-                            <CardDescription>
-                                Define cómo tus clientes pueden contactarte
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2">
-                                    <Label htmlFor="support-email">Correo de Soporte</Label>
-                                    <Input
-                                        id="support-email"
-                                        type="email"
-                                        placeholder="soporte@tunegocio.com"
-                                        value={contactForm.supportEmail}
-                                        onChange={(e) => setContactForm(prev => ({ ...prev, supportEmail: e.target.value }))}
-                                    />
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="support-phone">Teléfono de Soporte</Label>
-                                    <Input
-                                        id="support-phone"
-                                        placeholder="+56912345678"
-                                        value={contactForm.supportPhone}
-                                        onChange={(e) => setContactForm(prev => ({ ...prev, supportPhone: e.target.value }))}
-                                    />
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="timezone">Zona Horaria</Label>
-                                    <Select value={contactForm.timezone} onValueChange={(value) => setContactForm(prev => ({ ...prev, timezone: value }))}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="America/Lima">Lima (GMT-5)</SelectItem>
-                                            <SelectItem value="America/Santiago">Santiago (GMT-3)</SelectItem>
-                                            <SelectItem value="America/Mexico_City">Ciudad de México (GMT-6)</SelectItem>
-                                            <SelectItem value="America/New_York">Nueva York (GMT-5)</SelectItem>
-                                            <SelectItem value="Europe/Madrid">Madrid (GMT+1)</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="flex justify-end">
-                                <Button onClick={handleSaveContactSettings} disabled={saving}>
-                                    {saving ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                            Guardando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            Guardar Configuración de Contacto
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                {/* WhatsApp Settings */}
-                <TabsContent value="whatsapp" className="space-y-6">
-                    <Card className="bg-luxury-glass border-white/5 shadow-[0_0_15px_rgba(255,255,255,0.02)] text-slate-100">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <MessageCircle className="h-5 w-5" />
-                                Configuración de WhatsApp Web
-                            </CardTitle>
-                            <CardDescription>
-                                Configura la conexión con WhatsApp Web, números de destino y grupos
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            {/* WhatsApp Connection */}
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
+                {/* Right Content Panel */}
+                <div className="flex-1 min-w-0">
+                    <AnimatePresence mode="wait">
+                        
+                        {activeTab === 'general' && (
+                            <motion.div
+                                key="general-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                {/* Contact Settings */}
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
                                     <div>
-                                        <h3 className="text-lg font-semibold">Conexión WhatsApp Web</h3>
-                                        <p className="text-sm text-slate-300">
-                                            {whatsappForm.webConnection.connected 
-                                                ? `Conectado como ${whatsappForm.webConnection.phoneNumber}`
-                                                : 'No conectado'
-                                            }
-                                        </p>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <Mail className="h-5 w-5 text-blue-600" />
+                                            Configuración de Contacto
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Define cómo tus clientes pueden contactar al equipo de soporte de tu negocio.</p>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <Button variant="outline" size="sm" onClick={checkWhatsAppStatus} className="gap-2">
-                                            <RefreshCw className="h-4 w-4" />
-                                            Refrescar Estado
-                                        </Button>
-                                        {whatsappForm.webConnection.connected ? (
-                                            <>
-                                                <Button variant="outline" className="gap-2" onClick={handleDisconnectWhatsApp}>
-                                                    <Smartphone className="h-4 w-4" />
-                                                    Desconectar
-                                                </Button>
-                                                <Button variant="destructive" className="gap-2" onClick={handleDisconnectWhatsApp}>
-                                                    <AlertTriangle className="h-4 w-4" />
-                                                    Forzar Desconexión
-                                                </Button>
-                                            </>
-                                        ) : (
-                                            <Button onClick={handleConnectWhatsApp} className="gap-2">
-                                                <QrCode className="h-4 w-4" />
-                                                Conectar con QR
-                                            </Button>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {whatsappForm.webConnection.qrCodeData && (
-                                    <div className="flex justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg">
-                                        <div className="text-center">
-                                            <div className="mb-4 p-4 bg-white rounded-lg">
-                                                <img 
-                                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(whatsappForm.webConnection.qrCodeData)}`}
-                                                    alt="WhatsApp QR Code"
-                                                    className="mx-auto"
+                                    <div className="space-y-4">
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="support-email" className="text-xs font-bold text-slate-500">Correo de Soporte</Label>
+                                                <Input
+                                                    id="support-email"
+                                                    type="email"
+                                                    placeholder="soporte@tunegocio.com"
+                                                    value={contactForm.supportEmail}
+                                                    onChange={(e) => setContactForm(prev => ({ ...prev, supportEmail: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
                                                 />
                                             </div>
-                                            <p className="text-sm text-slate-300 mb-2">
-                                                Escanea este código QR con WhatsApp
-                                            </p>
-                                            <p className="text-xs text-slate-500">
-                                                Abre WhatsApp &gt; Menú &gt; WhatsApp Web &gt; Escanear código QR
-                                            </p>
+
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="support-phone" className="text-xs font-bold text-slate-500">Teléfono de Soporte</Label>
+                                                <Input
+                                                    id="support-phone"
+                                                    placeholder="+56912345678"
+                                                    value={contactForm.supportPhone}
+                                                    onChange={(e) => setContactForm(prev => ({ ...prev, supportPhone: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="timezone" className="text-xs font-bold text-slate-500">Zona Horaria</Label>
+                                                <Select value={contactForm.timezone} onValueChange={(value) => setContactForm(prev => ({ ...prev, timezone: value }))}>
+                                                    <SelectTrigger className="bg-white border-slate-200 text-xs h-9 rounded-xl focus:ring-blue-600 font-semibold">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="America/Lima">Lima (GMT-5)</SelectItem>
+                                                        <SelectItem value="America/Santiago">Santiago (GMT-3)</SelectItem>
+                                                        <SelectItem value="America/Mexico_City">Ciudad de México (GMT-6)</SelectItem>
+                                                        <SelectItem value="America/New_York">Nueva York (GMT-5)</SelectItem>
+                                                        <SelectItem value="Europe/Madrid">Madrid (GMT+1)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button onClick={handleSaveContactSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-750 text-white font-extrabold text-xs h-10 rounded-xl px-5 shadow-2xs">
+                                                {saving ? (
+                                                    <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Guardando...</>
+                                                ) : (
+                                                    <><Save className="mr-2 h-4 w-4" />Guardar Ajustes de Contacto</>
+                                                )}
+                                            </Button>
                                         </div>
                                     </div>
-                                )}
-                            </div>
+                                </Card>
 
-                            <Separator />
-
-                            {/* General Settings */}
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-semibold">Configuración General</h3>
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="whatsapp-enabled">Habilitar WhatsApp</Label>
-                                        <Switch
-                                            checked={whatsappForm.enabled}
-                                            onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, enabled: checked }))}
-                                        />
-                                        <p className="text-xs text-slate-500">
-                                            Activa o desactiva el servicio de WhatsApp
-                                        </p>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="auto-reply">Respuestas Automáticas</Label>
-                                        <Switch
-                                            checked={whatsappForm.autoReply}
-                                            onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, autoReply: checked }))}
-                                        />
-                                        <p className="text-xs text-slate-500">
-                                            Habilita respuestas automáticas del bot cuando recibas mensajes
-                                        </p>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="destination-number">Número de Destino</Label>
-                                        <Input
-                                            id="destination-number"
-                                            placeholder="+56912345678"
-                                            value={whatsappForm.destinationNumber}
-                                            onChange={(e) => setWhatsappForm(prev => ({ ...prev, destinationNumber: e.target.value }))}
-                                            disabled={!whatsappForm.enabled}
-                                        />
-                                        <p className="text-xs text-slate-500">
-                                            Número al que se enviarán los mensajes por defecto
-                                        </p>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="auto-reply">Respuesta Automática</Label>
-                                        <Switch
-                                            checked={whatsappForm.autoReply}
-                                            onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, autoReply: checked }))}
-                                            disabled={!whatsappForm.enabled}
-                                        />
-                                        <p className="text-xs text-slate-500">
-                                            Responde automáticamente a mensajes entrantes
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            {/* Groups Configuration */}
-                            <div className="space-y-4 border rounded-lg p-6 bg-blue-50/30 border-blue-100">
-                                <div className="flex items-center gap-3">
-                                    <Users className="h-5 w-5 text-blue-600" />
+                                {/* Preferences Settings */}
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
                                     <div>
-                                        <h3 className="text-lg font-semibold text-blue-900">Gestión de Grupos</h3>
-                                        <p className="text-sm text-blue-700">
-                                            Habilita el bot para responder y gestionar grupos de WhatsApp automáticamente.
-                                        </p>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <SettingsIcon className="h-5 w-5 text-blue-600" />
+                                            Preferencias del Negocio
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Configura el idioma de atención de tu bot y el tipo de moneda para cotizaciones automáticas.</p>
                                     </div>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm font-medium">Auto-gestión de grupos</span>
-                                    <Switch 
-                                        checked={whatsappForm.respondInGroups}
-                                        onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, respondInGroups: checked }))}
-                                    />
-                                </div>
-                            </div>
+                                    <div className="space-y-6">
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="language" className="text-xs font-bold text-slate-500">Idioma</Label>
+                                                <Select value={preferencesForm.language} onValueChange={(value) => setPreferencesForm(prev => ({ ...prev, language: value }))}>
+                                                    <SelectTrigger className="bg-white border-slate-200 text-xs h-9 rounded-xl focus:ring-blue-600 font-semibold">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {LANGUAGE_OPTIONS.map((option) => (
+                                                            <SelectItem key={option.value} value={option.value}>
+                                                                {option.label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
 
-                            <div className="flex justify-end pt-4">
-                                <Button onClick={handleSaveWhatsAppSettings} disabled={saving} className="bg-green-600 hover:bg-green-700 h-12 px-8">
-                                    {saving ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                            Guardando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            Guardar Configuración WhatsApp
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="currency" className="text-xs font-bold text-slate-500">Moneda</Label>
+                                                <Select value={preferencesForm.currency} onValueChange={(value) => setPreferencesForm(prev => ({ ...prev, currency: value }))}>
+                                                    <SelectTrigger className="bg-white border-slate-200 text-xs h-9 rounded-xl focus:ring-blue-600 font-semibold">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {CURRENCY_OPTIONS.map((option) => (
+                                                            <SelectItem key={option.value} value={option.value}>
+                                                                {option.label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
 
-                {/* Telegram Settings */}
-                <TabsContent value="telegram" className="space-y-6">
-                    <Card className="bg-luxury-glass border-white/5 shadow-[0_0_15px_rgba(255,255,255,0.02)] text-slate-100">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Send className="h-5 w-5 text-blue-500" />
-                                Configuración de Telegram
-                            </CardTitle>
-                            <CardDescription>
-                                Conecta tu negocio con Telegram para responder a tus clientes
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid gap-6 md:grid-cols-2">
-                                <div className="space-y-4 border rounded-xl p-6 bg-white shadow-sm border-white/5">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 bg-blue-50 rounded-lg">
-                                            <Bot className="h-5 w-5 text-blue-600" />
+                                        <Separator className="bg-slate-100" />
+
+                                        <div className="space-y-4">
+                                            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 font-syst">Ajustes de Notificaciones</h4>
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <span className="text-xs font-bold text-slate-700">Notificaciones por Email</span>
+                                                        <p className="text-[10px] text-slate-400">Recibir alertas de citas agendadas por correo</p>
+                                                    </div>
+                                                    <Switch
+                                                        checked={preferencesForm.notifications.emailNotifications}
+                                                        onCheckedChange={(checked) => setPreferencesForm(prev => ({
+                                                            ...prev,
+                                                            notifications: { ...prev.notifications, emailNotifications: checked }
+                                                        }))}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <span className="text-xs font-bold text-slate-700">Notificaciones SMS</span>
+                                                        <p className="text-[10px] text-slate-400">Mensajes de texto con resúmenes del CRM</p>
+                                                    </div>
+                                                    <Switch
+                                                        checked={preferencesForm.notifications.smsNotifications}
+                                                        onCheckedChange={(checked) => setPreferencesForm(prev => ({
+                                                            ...prev,
+                                                            notifications: { ...prev.notifications, smsNotifications: checked }
+                                                        }))}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <span className="text-xs font-bold text-slate-700">Notificaciones Push</span>
+                                                        <p className="text-[10px] text-slate-400">Alertas emergentes al recibir mensajes</p>
+                                                    </div>
+                                                    <Switch
+                                                        checked={preferencesForm.notifications.pushNotifications}
+                                                        onCheckedChange={(checked) => setPreferencesForm(prev => ({
+                                                            ...prev,
+                                                            notifications: { ...prev.notifications, pushNotifications: checked }
+                                                        }))}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button onClick={handleSavePreferences} disabled={saving} className="bg-blue-600 hover:bg-blue-750 text-white font-extrabold text-xs h-10 rounded-xl px-5 shadow-2xs">
+                                                {saving ? (
+                                                    <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Guardando...</>
+                                                ) : (
+                                                    <><Save className="mr-2 h-4 w-4" />Guardar Preferencias</>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </Card>
+
+                                {/* Business Hours */}
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
+                                    <div>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <Clock className="h-5 w-5 text-blue-600" />
+                                            Horarios de Atención
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Define el horario laboral de tu negocio. Fuera de estas horas, el bot puede enviar mensajes de ausencia programados.</p>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <div className="space-y-3">
+                                            {Object.entries(contactForm.businessHours).map(([day, hours]) => (
+                                                <div key={day} className="flex items-center justify-between p-3.5 border border-slate-100 rounded-2xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                                                    <div className="flex items-center gap-4">
+                                                        <Switch
+                                                            checked={!hours.closed}
+                                                            onCheckedChange={(checked) => updateBusinessHours(day, 'closed', !checked)}
+                                                        />
+                                                        <div className="w-20">
+                                                            <p className="text-xs font-bold text-slate-700 capitalize font-syst">{day}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2.5">
+                                                        <Input
+                                                            type="time"
+                                                            value={hours.open}
+                                                            onChange={(e) => updateBusinessHours(day, 'open', e.target.value)}
+                                                            disabled={hours.closed}
+                                                            className="w-24 text-xs h-8 rounded-lg bg-white"
+                                                        />
+                                                        <span className="text-[10px] font-bold text-slate-400">a</span>
+                                                        <Input
+                                                            type="time"
+                                                            value={hours.close}
+                                                            onChange={(e) => updateBusinessHours(day, 'close', e.target.value)}
+                                                            disabled={hours.closed}
+                                                            className="w-24 text-xs h-8 rounded-lg bg-white"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <Separator className="bg-slate-100" />
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button onClick={handleSaveContactSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-750 text-white font-extrabold text-xs h-10 rounded-xl px-5 shadow-2xs">
+                                                {saving ? (
+                                                    <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Guardando...</>
+                                                ) : (
+                                                    <><Save className="mr-2 h-4 w-4" />Guardar Horarios</>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </Card>
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'integrations' && (
+                            <motion.div
+                                key="integrations-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                {/* Connected Channels Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                    
+                                    {/* WhatsApp Business API */}
+                                    <Card className="bg-white border border-slate-200/60 rounded-3xl p-5 shadow-xs flex flex-col justify-between">
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="p-2.5 bg-green-50 text-green-600 rounded-xl border border-green-100">
+                                                    <MessageCircle className="w-5 h-5" />
+                                                </div>
+                                                <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                            </div>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">WhatsApp Business API</h3>
+                                            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">Conexión Oficial Cloud API</p>
+                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Conexión robusta para envíos ilimitados de plantillas interactivas aprobadas por Meta.</p>
+                                        </div>
+                                        <Button 
+                                            onClick={() => {
+                                                toast({
+                                                    title: 'WhatsApp Business API',
+                                                    description: 'Esta función requiere verificación de Meta Business Manager en producción.',
+                                                })
+                                            }}
+                                            className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                        >
+                                            Configurar API
+                                        </Button>
+                                    </Card>
+
+                                    {/* WhatsApp Web (QR session) */}
+                                    <Card className="bg-white border border-slate-200/60 rounded-3xl p-5 shadow-xs flex flex-col justify-between">
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
+                                                    <QrCode className="w-5 h-5" />
+                                                </div>
+                                                {whatsappForm.webConnection.connected ? (
+                                                    <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded">Conectado</Badge>
+                                                ) : (
+                                                    <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                                )}
+                                            </div>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">WhatsApp Web QR</h3>
+                                            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">Sesión Web Emulada por QR</p>
+                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Vincula tu celular en segundos escaneando un código QR. Ideal para pruebas rápidas.</p>
+                                        </div>
+
+                                        <div className="space-y-3 mt-6">
+                                            {whatsappForm.webConnection.connected ? (
+                                                <>
+                                                    <p className="text-[10px] text-emerald-600 font-bold text-center">✓ Activo como {whatsappForm.webConnection.phoneNumber}</p>
+                                                    <Button 
+                                                        onClick={handleDisconnectWhatsApp} 
+                                                        variant="destructive"
+                                                        className="w-full text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                                    >
+                                                        Desconectar Celular
+                                                    </Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {whatsappForm.webConnection.qrCodeData ? (
+                                                        <div className="space-y-3">
+                                                            <div className="flex justify-center p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                                                {whatsappForm.webConnection.qrCodeData.startsWith('data:') ? (
+                                                                    <img src={whatsappForm.webConnection.qrCodeData} alt="QR Code" className="max-w-[140px]" />
+                                                                ) : (
+                                                                    <QRCode value={whatsappForm.webConnection.qrCodeData} size={130} />
+                                                                )}
+                                                            </div>
+                                                            <p className="text-[9px] text-slate-450 text-center font-bold uppercase">Escanea con la cámara de WhatsApp</p>
+                                                            <Button 
+                                                                onClick={handleDisconnectWhatsApp} 
+                                                                variant="outline"
+                                                                className="w-full border-slate-200 text-slate-650 font-extrabold text-xs h-10 rounded-xl shadow-2xs bg-white hover:bg-slate-50"
+                                                            >
+                                                                Cancelar QR
+                                                            </Button>
+                                                        </div>
+                                                    ) : (
+                                                        <Button 
+                                                            onClick={handleConnectWhatsApp} 
+                                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                                        >
+                                                            Conectar con QR
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </Card>
+
+                                    {/* Instagram Messaging */}
+                                    <Card className="bg-white border border-slate-200/60 rounded-3xl p-5 shadow-xs flex flex-col justify-between">
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="p-2.5 bg-pink-50 text-pink-600 rounded-xl border border-pink-100">
+                                                    <Instagram className="w-5 h-5" />
+                                                </div>
+                                                <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                            </div>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">Instagram Messaging</h3>
+                                            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">Conexión OAuth de Instagram</p>
+                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Vincula tu cuenta empresarial de Instagram. Responde DMs y comentarios automáticamente.</p>
+                                        </div>
+                                        <Button 
+                                            onClick={() => {
+                                                toast({
+                                                    title: 'Instagram OAuth',
+                                                    description: 'Conectando con Facebook Login API...',
+                                                })
+                                            }}
+                                            className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                        >
+                                            Login con Facebook
+                                        </Button>
+                                    </Card>
+
+                                    {/* Facebook Messenger */}
+                                    <Card className="bg-white border border-slate-200/60 rounded-3xl p-5 shadow-xs flex flex-col justify-between">
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100">
+                                                    <MessageCircle className="w-5 h-5" />
+                                                </div>
+                                                <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                            </div>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">Facebook Messenger</h3>
+                                            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">Conexión OAuth de Facebook Page</p>
+                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Conecta tu página empresarial de Facebook para atender todos tus chats de Messenger.</p>
+                                        </div>
+                                        <Button 
+                                            onClick={() => {
+                                                toast({
+                                                    title: 'Messenger OAuth',
+                                                    description: 'Redirigiendo a Meta Login Flow...',
+                                                })
+                                            }}
+                                            className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                        >
+                                            Conectar Página
+                                        </Button>
+                                    </Card>
+
+                                    {/* Telegram Bot API */}
+                                    <Card className="bg-white border border-slate-200/60 rounded-3xl p-5 shadow-xs flex flex-col justify-between">
+                                        <div>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="p-2.5 bg-sky-50 text-sky-600 rounded-xl border border-sky-100">
+                                                    <Send className="w-5 h-5" />
+                                                </div>
+                                                {telegramConnected ? (
+                                                    <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded">Conectado</Badge>
+                                                ) : (
+                                                    <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                                )}
+                                            </div>
+                                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">Telegram Bot API</h3>
+                                            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">Token de BotFather</p>
+                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Atiende chats mediante un Bot Oficial de Telegram. Configura el token de acceso.</p>
+                                        </div>
+
+                                        <div className="space-y-3 mt-6">
+                                            {!telegramConnected ? (
+                                                <div className="space-y-3">
+                                                    <Input 
+                                                        type="password" 
+                                                        placeholder="Token (ej. 1234567:ABC...)"
+                                                        value={telegramBotToken}
+                                                        onChange={(e) => setTelegramBotToken(e.target.value)}
+                                                        className="text-xs h-9 rounded-xl border-slate-200"
+                                                    />
+                                                    <Button 
+                                                        onClick={handleConnectTelegram} 
+                                                        disabled={telegramSaving || !telegramBotToken.trim()} 
+                                                        className="w-full bg-blue-600 hover:bg-blue-750 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                                    >
+                                                        Conectar Telegram
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <Button 
+                                                    onClick={handleDisconnectTelegram} 
+                                                    disabled={telegramSaving} 
+                                                    variant="destructive"
+                                                    className="w-full text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
+                                                >
+                                                    Desconectar Telegram Bot
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </Card>
+
+                                    {/* Proximamente Placeholder */}
+                                    <Card className="bg-slate-55 border border-dashed border-slate-200 rounded-3xl p-5 flex flex-col items-center justify-center text-center min-h-[220px]">
+                                        <div className="p-3 bg-slate-100 text-slate-400 rounded-full">
+                                            <Plus className="w-5 h-5" />
+                                        </div>
+                                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mt-3 font-syst">Próximos Canales</h4>
+                                        <p className="text-[11px] text-slate-400 mt-1 max-w-[160px] font-medium leading-normal">Discord, Slack y Web Chat en desarrollo activo.</p>
+                                    </Card>
+
+                                </div>
+
+                                {/* Resumen de Actividad Footer Card */}
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-blue-50 text-blue-600 rounded-xl border border-blue-100">
+                                            <Zap className="w-4 h-4" />
                                         </div>
                                         <div>
-                                            <h3 className="font-bold text-white">Telegram Bot (Recomendado)</h3>
-                                            {telegramConnected && (
-                                                <Badge className="bg-green-100 text-green-800 border-green-200">Conectado</Badge>
+                                            <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">Resumen de Actividad de Canales</h4>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide mt-0.5">Estado general de tus integraciones</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3.5 text-xs text-slate-650 font-semibold font-mono flex-wrap">
+                                        <span>Canales Activos: <strong className="text-slate-800 font-extrabold">{[whatsappForm.webConnection.connected, telegramConnected].filter(Boolean).length} / 5</strong></span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                                        <span>Tráfico en Vivo: <strong className="text-emerald-600 font-extrabold">12 m/min</strong></span>
+                                    </div>
+                                </Card>
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'security' && (
+                            <motion.div
+                                key="security-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                {/* Premium AI Features */}
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
+                                    <div>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <Zap className="h-5 w-5 text-purple-650" />
+                                            Módulos de Inteligencia Premium
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Potencia tu negocio con algoritmos avanzados de venta proactiva y detección de emociones.</p>
+                                    </div>
+                                    
+                                    <div className="grid gap-6 md:grid-cols-2">
+                                        {/* Upselling */}
+                                        <div className={`p-5 rounded-2xl border transition-all ${
+                                            selectedBusiness?.allowedFeatures?.includes('UPSELLING') 
+                                            ? 'border-emerald-250 bg-emerald-50/10' 
+                                            : 'border-slate-100 bg-slate-50 opacity-60'
+                                        }`}>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
+                                                        <Zap className="h-4 w-4" />
+                                                    </div>
+                                                    <h4 className="font-bold text-slate-800 text-xs">Venta Proactiva (Upselling)</h4>
+                                                </div>
+                                                <Switch
+                                                    checked={whatsappForm.upsellingEnabled}
+                                                    onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, upsellingEnabled: checked }))}
+                                                    disabled={!selectedBusiness?.allowedFeatures?.includes('UPSELLING')}
+                                                />
+                                            </div>
+                                            <p className="text-xs text-slate-500 leading-relaxed font-medium">El bot detectará intenciones de compra secundarias y recomendará productos o servicios extras automáticos.</p>
+                                            {!selectedBusiness?.allowedFeatures?.includes('UPSELLING') && (
+                                                <Badge className="bg-amber-50 text-amber-600 border border-amber-100 text-[8px] font-black uppercase mt-3">Plan Premium</Badge>
+                                            )}
+                                        </div>
+
+                                        {/* Sentiment Analysis */}
+                                        <div className={`p-5 rounded-2xl border transition-all ${
+                                            selectedBusiness?.allowedFeatures?.includes('SENTIMENT') 
+                                            ? 'border-blue-250 bg-blue-50/10' 
+                                            : 'border-slate-100 bg-slate-50 opacity-60'
+                                        }`}>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                                        <Brain className="h-4 w-4" />
+                                                    </div>
+                                                    <h4 className="font-bold text-slate-800 text-xs">Análisis de Sentimiento</h4>
+                                                </div>
+                                                <Switch
+                                                    checked={whatsappForm.sentimentAnalysisEnabled}
+                                                    onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, sentimentAnalysisEnabled: checked }))}
+                                                    disabled={!selectedBusiness?.allowedFeatures?.includes('SENTIMENT')}
+                                                />
+                                            </div>
+                                            <p className="text-xs text-slate-500 leading-relaxed font-medium">Identifica usuarios frustrados o enfadados y genera alertas prioritarias para pausar la IA e intervenir.</p>
+                                            {!selectedBusiness?.allowedFeatures?.includes('SENTIMENT') && (
+                                                <Badge className="bg-amber-50 text-amber-600 border border-amber-100 text-[8px] font-black uppercase mt-3">Plan Premium</Badge>
                                             )}
                                         </div>
                                     </div>
-                                    <p className="text-sm text-slate-500">
-                                        Crea un bot oficial con @BotFather y pega el token aquí.
-                                    </p>
-                                    <div className="space-y-2">
-                                        <Label>Token del Bot</Label>
-                                        <Input 
-                                            type="password" 
-                                            placeholder="123456789:ABCDEF..."
-                                            value={telegramBotToken}
-                                            onChange={(e) => setTelegramBotToken(e.target.value)}
-                                            disabled={telegramConnected}
-                                        />
+
+                                    <div className="flex justify-end pt-2">
+                                        <Button onClick={handleSaveWhatsAppSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-755 text-white font-extrabold text-xs h-10 rounded-xl px-5">
+                                            {saving ? 'Guardando...' : 'Guardar Módulos'}
+                                        </Button>
                                     </div>
-                                    <div className="flex gap-2">
-                                        {!telegramConnected ? (
-                                            <Button 
-                                                onClick={handleConnectTelegram} 
-                                                disabled={telegramSaving || !telegramBotToken.trim()} 
-                                                className="w-full bg-blue-600 hover:bg-blue-700"
-                                            >
-                                                {telegramSaving ? (
-                                                    <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
-                                                ) : (
-                                                    'Conectar Bot'
-                                                )}
-                                            </Button>
-                                        ) : (
-                                            <Button 
-                                                onClick={handleDisconnectTelegram} 
-                                                disabled={telegramSaving} 
-                                                variant="destructive" 
-                                                className="w-full"
-                                            >
-                                                {telegramSaving ? 'Desconectando...' : 'Desconectar Bot'}
-                                            </Button>
-                                        )}
+                                </Card>
+
+                                {/* AI Model Config */}
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
+                                    <div>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <Brain className="h-5 w-5 text-purple-650" />
+                                            Credenciales de Modelo de Inferencia (LLM)
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Vincula tus credenciales de proveedor LLM (Groq, OpenAI) para procesar las respuestas del bot.</p>
                                     </div>
-                                </div>
-
-                                <div className="space-y-4 border rounded-xl p-6 bg-transparent border-white/5 opacity-60">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 bg-slate-200 rounded-lg">
-                                            <Smartphone className="h-5 w-5 text-slate-300" />
-                                        </div>
-                                        <h3 className="font-bold text-white">Telegram Personal</h3>
-                                    </div>
-                                    <p className="text-sm text-slate-500">
-                                        Usa tu propia cuenta como bot. Requiere API ID y API Hash.
-                                    </p>
-                                    <Badge variant="outline" className="bg-white/10">Próximamente en panel web</Badge>
-                                    <p className="text-xs text-slate-500">
-                                        Esta función ya es estable en el backend pero requiere configuración asistida.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="bg-amber-50 border border-amber-100 p-4 rounded-lg flex gap-3">
-                                <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
-                                <div>
-                                    <p className="text-sm font-semibold text-amber-900">¿Cómo conectar Telegram?</p>
-                                    <p className="text-xs text-amber-800 mt-1">
-                                        Para usar Telegram Bot, busca a <strong>@BotFather</strong> en Telegram, usa /newbot y sigue las instrucciones. 
-                                        Copia el API Token resultante y pégalo arriba.
-                                    </p>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                {/* Business Hours */}
-                <TabsContent value="hours" className="space-y-6">
-                    <Card className="bg-luxury-glass border-white/5 shadow-[0_0_15px_rgba(255,255,255,0.02)] text-slate-100">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Clock className="h-5 w-5" />
-                                Horarios de Atención
-                            </CardTitle>
-                            <CardDescription>
-                                Define tus horarios de atención para tus clientes
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {Object.entries(contactForm.businessHours).map(([day, hours]) => (
-                                <div key={day} className="flex items-center justify-between p-4 border rounded-lg">
-                                    <div className="flex items-center gap-4">
-                                        <Switch
-                                            checked={!hours.closed}
-                                            onCheckedChange={(checked) => updateBusinessHours(day, 'closed', !checked)}
-                                        />
-                                        <div className="w-20">
-                                            <p className="font-medium capitalize">{day}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Input
-                                            type="time"
-                                            value={hours.open}
-                                            onChange={(e) => updateBusinessHours(day, 'open', e.target.value)}
-                                            disabled={hours.closed}
-                                            className="w-24"
-                                        />
-                                        <span>a</span>
-                                        <Input
-                                            type="time"
-                                            value={hours.close}
-                                            onChange={(e) => updateBusinessHours(day, 'close', e.target.value)}
-                                            disabled={hours.closed}
-                                            className="w-24"
-                                        />
-                                    </div>
-                                </div>
-                            ))}
-
-                            <Separator />
-
-                            <div className="flex justify-end">
-                                <Button onClick={handleSaveContactSettings} disabled={saving}>
-                                    {saving ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                            Guardando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            Guardar Horarios
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                {/* Preferences */}
-                <TabsContent value="preferences" className="space-y-6">
-                    <Card className="bg-luxury-glass border-white/5 shadow-[0_0_15px_rgba(255,255,255,0.02)] text-slate-100">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <SettingsIcon className="h-5 w-5" />
-                                Preferencias del Negocio
-                            </CardTitle>
-                            <CardDescription>
-                                Configura las preferencias generales de tu negocio
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2">
-                                    <Label htmlFor="language">Idioma</Label>
-                                    <Select value={preferencesForm.language} onValueChange={(value) => setPreferencesForm(prev => ({ ...prev, language: value }))}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {LANGUAGE_OPTIONS.map((option) => (
-                                                <SelectItem key={option.value} value={option.value}>
-                                                    {option.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="currency">Moneda</Label>
-                                    <Select value={preferencesForm.currency} onValueChange={(value) => setPreferencesForm(prev => ({ ...prev, currency: value }))}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {CURRENCY_OPTIONS.map((option) => (
-                                                <SelectItem key={option.value} value={option.value}>
-                                                    {option.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-semibold">Notificaciones</h3>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <span className="text-sm font-medium">Notificaciones por Email</span>
-                                            <p className="text-xs text-slate-500">Recibir alertas y actualizaciones por correo</p>
-                                        </div>
-                                        <Switch
-                                            checked={preferencesForm.notifications.emailNotifications}
-                                            onCheckedChange={(checked) => setPreferencesForm(prev => ({
-                                                ...prev,
-                                                notifications: { ...prev.notifications, emailNotifications: checked }
-                                            }))}
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <span className="text-sm font-medium">Notificaciones SMS</span>
-                                            <p className="text-xs text-slate-500">Alertas importantes por mensaje de texto</p>
-                                        </div>
-                                        <Switch
-                                            checked={preferencesForm.notifications.smsNotifications}
-                                            onCheckedChange={(checked) => setPreferencesForm(prev => ({
-                                                ...prev,
-                                                notifications: { ...prev.notifications, smsNotifications: checked }
-                                            }))}
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <span className="text-sm font-medium">Notificaciones Push</span>
-                                            <p className="text-xs text-slate-500">Notificaciones en tiempo real</p>
-                                        </div>
-                                        <Switch
-                                            checked={preferencesForm.notifications.pushNotifications}
-                                            onCheckedChange={(checked) => setPreferencesForm(prev => ({
-                                                ...prev,
-                                                notifications: { ...prev.notifications, pushNotifications: checked }
-                                            }))}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="flex justify-end">
-                                <Button onClick={handleSavePreferences} disabled={saving}>
-                                    {saving ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                            Guardando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save className="mr-2 h-4 w-4" />
-                                            Guardar Preferencias
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-                {/* AI Advanced Settings */}
-                <TabsContent value="ai-advanced" className="space-y-6">
-                    <Card className="border-purple-200 bg-purple-50/20">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2 text-purple-900">
-                                <Zap className="h-5 w-5 text-purple-600" />
-                                Módulos de Inteligencia Premium
-                            </CardTitle>
-                            <CardDescription className="text-purple-700">
-                                Potencia tu negocio con algoritmos de venta proactiva y detección de emociones.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid gap-6 md:grid-cols-2">
-                                {/* Upselling */}
-                                <div className={`p-4 rounded-xl border-2 transition-all ${
-                                    selectedBusiness?.allowedFeatures?.includes('UPSELLING') 
-                                    ? 'border-emerald-200 bg-white' 
-                                    : 'border-white/5 bg-white/5 opacity-60'
-                                }`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="p-2 bg-emerald-100 rounded-lg">
-                                                <Zap className="h-4 w-4 text-emerald-600" />
+                                    
+                                    <div className="space-y-4">
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-bold text-slate-500">Proveedor de Inferencia</Label>
+                                                <Select value={aiForm.aiProvider} onValueChange={(val) => setAiForm(prev => ({ ...prev, aiProvider: val }))}>
+                                                    <SelectTrigger className="bg-white border-slate-200 text-xs h-9 rounded-xl focus:ring-blue-600 font-semibold">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="GROQ">Groq Cloud (Recomendado)</SelectItem>
+                                                        <SelectItem value="OPENAI">OpenAI API</SelectItem>
+                                                        <SelectItem value="CLAUDE">Anthropic Claude</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                             </div>
-                                            <h4 className="font-bold text-white">Venta Proactiva (Upselling)</h4>
-                                        </div>
-                                        <Switch
-                                            checked={whatsappForm.upsellingEnabled}
-                                            onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, upsellingEnabled: checked }))}
-                                            disabled={!selectedBusiness?.allowedFeatures?.includes('UPSELLING')}
-                                        />
-                                    </div>
-                                    <p className="text-sm text-slate-300 mb-4">
-                                        El bot detectará momentos de felicidad e intención de compra para sugerir productos o servicios adicionales según tu rubro ({selectedBusiness?.industryType}).
-                                    </p>
-                                    {!selectedBusiness?.allowedFeatures?.includes('UPSELLING') && (
-                                        <Badge variant="outline" className="text-amber-600 border-amber-200 bg-amber-50">
-                                            Requiere Plan Premium
-                                        </Badge>
-                                    )}
-                                </div>
 
-                                {/* Sentiment Analysis */}
-                                <div className={`p-4 rounded-xl border-2 transition-all ${
-                                    selectedBusiness?.allowedFeatures?.includes('SENTIMENT') 
-                                    ? 'border-blue-200 bg-white' 
-                                    : 'border-white/5 bg-white/5 opacity-60'
-                                }`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="p-2 bg-blue-100 rounded-lg">
-                                                <Brain className="h-4 w-4 text-blue-600" />
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-bold text-slate-500 font-mono">Model ID</Label>
+                                                <Input
+                                                    value={aiForm.aiModel}
+                                                    onChange={(e) => setAiForm(prev => ({ ...prev, aiModel: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
                                             </div>
-                                            <h4 className="font-bold text-white">Análisis de Sentimiento</h4>
+
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-bold text-slate-500">Base URL de la API</Label>
+                                                <Input
+                                                    value={aiForm.aiBaseUrl}
+                                                    onChange={(e) => setAiForm(prev => ({ ...prev, aiBaseUrl: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-bold text-slate-500">API Key Secreta</Label>
+                                                <Input
+                                                    type="password"
+                                                    value={aiForm.aiApiKey}
+                                                    onChange={(e) => setAiForm(prev => ({ ...prev, aiApiKey: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
+                                            </div>
                                         </div>
-                                        <Switch
-                                            checked={whatsappForm.sentimentAnalysisEnabled}
-                                            onCheckedChange={(checked) => setWhatsappForm(prev => ({ ...prev, sentimentAnalysisEnabled: checked }))}
-                                            disabled={!selectedBusiness?.allowedFeatures?.includes('SENTIMENT')}
-                                        />
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button onClick={handleSaveAiSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-755 text-white font-extrabold text-xs h-10 rounded-xl px-5">
+                                                {saving ? 'Guardando...' : 'Guardar Credenciales de IA'}
+                                            </Button>
+                                        </div>
                                     </div>
-                                    <p className="text-sm text-slate-300 mb-4">
-                                        Identifica automáticamente clientes frustrados o urgentes y activa alertas de intervención humana inmediata.
-                                    </p>
-                                    {!selectedBusiness?.allowedFeatures?.includes('SENTIMENT') && (
-                                        <Badge variant="outline" className="text-amber-600 border-amber-200 bg-amber-50">
-                                            Módulo Bloqueado
-                                        </Badge>
-                                    )}
-                                </div>
-                            </div>
+                                </Card>
+                            </motion.div>
+                        )}
 
-                            <Separator />
+                        {activeTab === 'billing' && (
+                            <motion.div
+                                key="billing-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
+                                    <div>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <CreditCard className="h-5 w-5 text-blue-600" />
+                                            Pasarela de Pagos del CRM
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Configura las credenciales de Stripe/MercadoPago para recibir cobros directamente vinculados a tus chats y presupuestos.</p>
+                                    </div>
+                                    
+                                    <div className="space-y-4">
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="payment-email" className="text-xs font-bold text-slate-500">Correo para Cobros</Label>
+                                                <Input
+                                                    id="payment-email"
+                                                    type="email"
+                                                    placeholder="pagos@tunegocio.com"
+                                                    value={paymentForm.email}
+                                                    onChange={(e) => setPaymentForm(prev => ({ ...prev, email: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
+                                            </div>
 
-                            <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg flex gap-3">
-                                <AlertTriangle className="h-5 w-5 text-blue-600 flex-shrink-0" />
-                                <div>
-                                    <p className="text-sm font-semibold text-blue-900">¿Cómo funcionan estos módulos?</p>
-                                    <p className="text-xs text-blue-800 mt-1">
-                                        Estas funciones utilizan modelos de IA avanzados para analizar el contexto emocional y comercial de cada mensaje. 
-                                        Si no tienes acceso, contacta con soporte para actualizar tu plan de rubro <strong>{selectedBusiness?.industryType}</strong>.
-                                    </p>
-                                </div>
-                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="payment-gateway" className="text-xs font-bold text-slate-500">Pasarela</Label>
+                                                <Select value={paymentForm.gateway} onValueChange={(value) => setPaymentForm(prev => ({ ...prev, gateway: value }))}>
+                                                    <SelectTrigger className="bg-white border-slate-200 text-xs h-9 rounded-xl focus:ring-blue-600 font-semibold">
+                                                        <SelectValue placeholder="Selecciona pasarela" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="stripe">Stripe (Oficial)</SelectItem>
+                                                        <SelectItem value="paypal">PayPal</SelectItem>
+                                                        <SelectItem value="mercadopago">MercadoPago</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
 
-                            <div className="flex justify-end">
-                                <Button onClick={handleSaveWhatsAppSettings} disabled={saving} className="bg-purple-600 hover:bg-purple-700">
-                                    {saving ? 'Guardando...' : 'Guardar Configuración IA'}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="whatsapp-number" className="text-xs font-bold text-slate-500">Celular de Control de Pagos</Label>
+                                                <Input
+                                                    id="whatsapp-number"
+                                                    placeholder="+51999888777"
+                                                    value={paymentForm.whatsappNumber}
+                                                    onChange={(e) => setPaymentForm(prev => ({ ...prev, whatsappNumber: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
+                                            </div>
 
-            </Tabs>
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="webhook-url" className="text-xs font-bold text-slate-500">Webhook URL</Label>
+                                                <Input
+                                                    id="webhook-url"
+                                                    placeholder="https://tuapi.com/payments"
+                                                    value={paymentForm.webhookUrl}
+                                                    onChange={(e) => setPaymentForm(prev => ({ ...prev, webhookUrl: e.target.value }))}
+                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button onClick={handleSavePaymentSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-755 text-white font-extrabold text-xs h-10 rounded-xl px-5">
+                                                {saving ? 'Guardando...' : 'Guardar Pasarela'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </Card>
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'apikeys' && (
+                            <motion.div
+                                key="apikeys-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
+                                    <div>
+                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                            <Key className="h-5 w-5 text-blue-600" />
+                                            API Keys de Acceso
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-1">Genera y administra tokens seguros para conectar tus propios endpoints y desarrollos externos.</p>
+                                    </div>
+                                    
+                                    <div className="space-y-4">
+                                        <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between gap-4">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-slate-700 font-mono">sb_live_048f3eaabf6b46a39c9c8230e3d29297</p>
+                                                <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider mt-1">Creado: Hace 3 días • Permisos: Full Access</p>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText("sb_live_048f3eaabf6b46a39c9c8230e3d29297");
+                                                    toast({ title: "Copiado", description: "API Key copiada al portapapeles" });
+                                                }}
+                                                className="border-slate-200 text-slate-655 hover:text-blue-600 rounded-xl bg-white hover:bg-slate-50"
+                                            >
+                                                Copiar Key
+                                            </Button>
+                                        </div>
+
+                                        <Button
+                                            onClick={() => {
+                                                toast({
+                                                    title: "Nueva API Key",
+                                                    description: "Función premium habilitada. La key se ha registrado en tu consola.",
+                                                });
+                                            }}
+                                            className="bg-blue-600 hover:bg-blue-750 text-white font-extrabold text-xs h-10 rounded-xl"
+                                        >
+                                            <Plus className="w-4 h-4 mr-1.5" />
+                                            Generar Nueva Key
+                                        </Button>
+                                    </div>
+                                </Card>
+                            </motion.div>
+                        )}
+
+                        {activeTab === 'team' && (
+                            <motion.div
+                                key="team-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
+                                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+                                        <div>
+                                            <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
+                                                <Users className="h-5 w-5 text-blue-600" />
+                                                Equipo y Colaboradores
+                                            </h3>
+                                            <p className="text-xs text-slate-500 mt-1">Administra los accesos de tus agentes, médicos y administradores.</p>
+                                        </div>
+                                        <Button
+                                            onClick={() => {
+                                                toast({
+                                                    title: "Invitar Miembro",
+                                                    description: "Abre el panel de invitaciones del equipo.",
+                                                });
+                                            }}
+                                            className="bg-blue-600 hover:bg-blue-750 text-white font-extrabold text-xs h-10 rounded-xl"
+                                        >
+                                            <Plus className="w-4 h-4 mr-1.5" />
+                                            Invitar Miembro
+                                        </Button>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">PP</div>
+                                                <div>
+                                                    <p className="text-xs font-bold text-slate-800">Pedro Pérez</p>
+                                                    <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider mt-0.5">pedro@tunegocio.com</p>
+                                                </div>
+                                            </div>
+                                            <Badge className="bg-blue-50 text-blue-600 border border-blue-100 text-[8px] font-black uppercase">Owner</Badge>
+                                        </div>
+
+                                        <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-750 flex items-center justify-center font-bold text-xs">MR</div>
+                                                <div>
+                                                    <p className="text-xs font-bold text-slate-800">María Rojas</p>
+                                                    <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wider mt-0.5">maria@tunegocio.com</p>
+                                                </div>
+                                            </div>
+                                            <Badge className="bg-violet-50 text-violet-600 border border-violet-100 text-[8px] font-black uppercase">Administrador</Badge>
+                                        </div>
+                                    </div>
+                                </Card>
+                            </motion.div>
+                        )}
+
+                    </AnimatePresence>
+                </div>
+
+            </div>
+
         </div>
     )
 }

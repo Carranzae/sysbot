@@ -6,6 +6,7 @@ export interface FileAttachment {
 
 export interface AIProviderResponse {
   content: string;
+  text?: string;
   usage?: {
     promptTokens: number;
     completionTokens: number;
@@ -49,7 +50,6 @@ export interface AIProviderConfig {
   temperature?: number;
   maxTokens?: number;
 }
-
 
 
 

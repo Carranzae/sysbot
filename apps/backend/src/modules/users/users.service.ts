@@ -8,7 +8,7 @@ export class UsersService {
 
   async create(createUserDto: CreateUserDto) {
     return this.prisma.user.create({
-      data: createUserDto,
+      data: createUserDto as any,
     });
   }
 
@@ -60,7 +60,7 @@ export class UsersService {
   async update(id: string, updateUserDto: UpdateUserDto) {
     return this.prisma.user.update({
       where: { id },
-      data: updateUserDto,
+      data: updateUserDto as any,
       select: {
         id: true,
         email: true,

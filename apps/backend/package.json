@@ -4,7 +4,7 @@
   "description": "SYST Backend API - NestJS",
   "scripts": {
     "build": "prisma generate --schema=../../packages/database/prisma/schema.prisma && nest build",
-    "dev": "ts-node -r tsconfig-paths/register src/main.ts",
+    "dev": "set NODE_OPTIONS=--max-old-space-size=4096&& ts-node -r tsconfig-paths/register src/main.ts",
     "dev:watch": "nest start --watch --preserveWatchOutput",
     "dev:nocheck": "nest start --watch --preserveWatchOutput --type-check false",
     "start": "export DATABASE_URL=\"${DATABASE_URL:-$DATABASE_PUBLIC_URL}\" && npx prisma migrate deploy --schema=../../packages/database/prisma/schema.prisma && node dist/main",

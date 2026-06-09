@@ -702,8 +702,12 @@ Please check the admin dashboard for more details.
       data: {
         budget: {
           upsert: {
-            create: { monthlyBudget },
-            update: { monthlyBudget }
+            create: {
+              monthlyBudget,
+              alertThreshold,
+              currentMonth: new Date().getFullYear() * 100 + new Date().getMonth() + 1,
+            },
+            update: { monthlyBudget, alertThreshold }
           }
         },
         budgetAlertThreshold: alertThreshold,
@@ -752,13 +756,13 @@ Please check the admin dashboard for more details.
           currentCost,
           budget,
           usagePercentage,
-          threshold: business.budgetAlertThreshold * 100,
+          threshold: Number(business.budgetAlertThreshold) * 100,
           ownerEmail: business.owner.email,
         });
       }
 
       // Critical alert if over budget
-      if (currentCost > budget) {
+      if (Number(currentCost) > Number(budget)) {
         await this.triggerAlert('BUDGET_EXCEEDED', {
           businessId: business.id,
           businessName: business.name,

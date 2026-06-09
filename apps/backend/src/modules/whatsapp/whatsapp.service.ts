@@ -253,9 +253,14 @@ export class WhatsappService {
     };
   }
 
-  async getWhatsAppAccount(phoneNumberId: string) {
-    return this.prisma.whatsAppAccount.findUnique({
-      where: { phoneNumberId },
+  async getWhatsAppAccount(idOrPhoneNumberId: string) {
+    return this.prisma.whatsAppAccount.findFirst({
+      where: {
+        OR: [
+          { id: idOrPhoneNumberId },
+          { phoneNumberId: idOrPhoneNumberId },
+        ],
+      },
       include: { business: true },
     });
   }

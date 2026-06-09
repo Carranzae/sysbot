@@ -62,7 +62,6 @@ export class PaymentValidationService {
           paymentGateway: true,
           crmProvider: true,
           name: true,
-          paymentConfig: true
         }
       });
 

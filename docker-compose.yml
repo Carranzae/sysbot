@@ -61,7 +61,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgresql://syst_user:syst_password@postgres:5432/syst_db?schema=public
+      DATABASE_URL: postgresql://syst_user:syst_password_2024@postgres:5432/syst_db?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       QDRANT_URL: http://qdrant:6333

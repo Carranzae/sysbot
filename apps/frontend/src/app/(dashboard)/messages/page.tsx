@@ -12,10 +12,10 @@ import {
   User, Users, MessageCircle, Bot, Pause, Play,
   Settings, X, Plus, Trash2, Calendar, Filter,
   ChevronRight, BrainCircuit, AlertCircle, Sparkles,
-  RefreshCw, LogOut, CheckCircle2
+  RefreshCw, LogOut, CheckCircle2, Instagram
 } from 'lucide-react'
 import Link from 'next/link'
-import { formatDateTime } from '@/lib/utils'
+import { formatDateTime, cn } from '@/lib/utils'
 import { format, isToday, isYesterday, isSameDay, isWithinInterval, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -24,11 +24,12 @@ interface Message {
   id: string
   body: string
   direction: 'incoming' | 'outgoing'
-  source?: 'whatsapp_web' | 'provider_api' | 'admin_api' | 'bot'
+  source?: 'whatsapp_web' | 'provider_api' | 'admin_api' | 'bot' | 'system'
   created_at: string
   status: string
   mediaUrl?: string
   mediaType?: 'image' | 'video' | 'document' | 'audio'
+  platform?: string
 }
 
 interface Chat {
@@ -39,6 +40,7 @@ interface Chat {
   last_message_at: string
   last_direction: 'incoming' | 'outgoing'
   last_media_type?: 'image' | 'video' | 'document' | 'audio'
+  platform?: string
 }
 
 interface CustomerProfile {
@@ -92,7 +94,23 @@ export default function MessagesPage() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
   const [pauseMap, setPauseMap] = useState<Record<string, boolean>>({})
-  const [activeTab, setActiveTab] = useState<'todos' | 'unread' | 'paused'>('todos')
+  const [activeTab, setActiveTab] = useState<'todos' | 'active' | 'paused'>('todos')
+  const [selectedChannel, setSelectedChannel] = useState<'all' | 'whatsapp' | 'instagram' | 'telegram' | 'messenger'>('all')
+  const [quickNotes, setQuickNotes] = useState<string>('')
+
+  useEffect(() => {
+    if (selectedChat) {
+      const saved = localStorage.getItem(`notes_${selectedChat}`) || ''
+      setQuickNotes(saved)
+    }
+  }, [selectedChat])
+
+  const handleSaveQuickNotes = (val: string) => {
+    setQuickNotes(val)
+    if (selectedChat) {
+      localStorage.setItem(`notes_${selectedChat}`, val)
+    }
+  }
   
   const socketRef = useRef<Socket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -115,15 +133,16 @@ export default function MessagesPage() {
     if (!selectedBusiness) return
     setLoadingChats(true)
     try {
-      const res = await livechatApi.getChats()
+      const res = await livechatApi.getChats(selectedBusiness.id)
       const chatList = (res as any).data?.chats || res.data || [];
       if (Array.isArray(chatList)) {
         setChats(chatList)
         if (chatList.length > 0) {
           try {
             const phones = chatList.map((c: any) => c.customer_phone)
-            const pauseRes = await livechatApi.getPauseStatuses(phones)
-            if (pauseRes.data) setPauseMap(pauseRes.data)
+            const pauseRes = await livechatApi.getPauseStatuses(phones, selectedBusiness.id)
+            const pauseData = pauseRes.data?.data || pauseRes.data?.statuses || pauseRes.data
+            if (pauseData) setPauseMap(pauseData)
           } catch { /* silencioso */ }
         }
       }
@@ -141,7 +160,7 @@ export default function MessagesPage() {
   const loadBotStatus = useCallback(async () => {
     if (!selectedBusiness) return
     try {
-      const res = await livechatApi.getBotEnabled()
+      const res = await livechatApi.getBotEnabled(selectedBusiness.id)
       const data = (res as any).data || res;
       setIsBotEnabled(!!data.enabled)
     } catch (e) {}
@@ -150,7 +169,7 @@ export default function MessagesPage() {
   const loadWhatsAppStatus = useCallback(async () => {
     if (!selectedBusiness) return
     try {
-      const res = await livechatApi.getStatus()
+      const res = await livechatApi.getStatus(selectedBusiness.id)
       const data = (res as any).data || res;
       setWaStatus(data.status || 'disconnected')
     } catch (e) {}
@@ -160,7 +179,7 @@ export default function MessagesPage() {
   const loadAvatar = async (phone: string) => {
     if (avatars[phone]) return
     try {
-      const res = await livechatApi.getAvatar(phone)
+      const res = await livechatApi.getAvatar(phone, selectedBusiness?.id)
       const data = (res as any).data || res;
       if (data.success && data.avatarUrl) {
         setAvatars(prev => ({ ...prev, [phone]: data.avatarUrl }))
@@ -182,7 +201,7 @@ export default function MessagesPage() {
   const loadMessages = async (phone: string) => {
     setLoadingMessages(true)
     try {
-      const res = await livechatApi.getChatMessages(phone)
+      const res = await livechatApi.getChatMessages(phone, selectedBusiness?.id)
       const data = (res as any).data || res;
       const list = data.messages || data || []
       setMessages(list)
@@ -201,7 +220,7 @@ export default function MessagesPage() {
   const loadProfile = async (phone: string) => {
     setLoadingProfile(true)
     try {
-      const res = await livechatApi.getCustomerProfile(phone)
+      const res = await livechatApi.getCustomerProfile(phone, selectedBusiness?.id)
       const data = (res as any).data || res;
       const profileData = data.profile || data || null
       setProfile(profileData)
@@ -229,6 +248,63 @@ export default function MessagesPage() {
     loadAvatar(chat.customer_phone)
   }
 
+  const [billingLoading, setBillingLoading] = useState(false)
+
+  const handleGenerateInvoice = async () => {
+    if (!selectedChat) return
+    try {
+      setBillingLoading(true)
+      const displayName = getDisplayName(currentChat || { customer_phone: selectedChat } as Chat)
+      const cleanPhone = selectedChat.split('@')[0]
+      const pendingAmount = profile?.stats?.total_pending || 120.00
+      
+      const res = await fetch('/api/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerPhone: cleanPhone,
+          customerName: displayName,
+          amount: pendingAmount,
+          items: [
+            {
+              description: 'Atención Médica / Consulta Virtual Integrada',
+              quantity: 1,
+              unitPrice: pendingAmount,
+            }
+          ]
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: `Boleta Emitida: ${data.invoiceNumber}`,
+          description: `Monto total: S/ ${data.total}. XML/JSON estructurado para SUNAT.`,
+        })
+        
+        // Simular el envío del comprobante al chat optimísticamente
+        const invoiceMsg: Message = {
+          id: `inv-${Date.now()}`,
+          body: `📄 Se emitió la boleta electrónica ${data.invoiceNumber} por un total de S/ ${data.total}.`,
+          direction: 'outgoing',
+          source: 'admin_api',
+          created_at: new Date().toISOString(),
+          status: 'sent'
+        }
+        setMessages(prev => [...prev, invoiceMsg])
+      } else {
+        throw new Error(data.message)
+      }
+    } catch (e: any) {
+      toast({
+        title: 'Error de Facturación',
+        description: e.message || 'No se pudo emitir la boleta electrónica.',
+        variant: 'destructive',
+      })
+    } finally {
+      setBillingLoading(false)
+    }
+  }
+
   // Enviar mensaje de texto
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
@@ -252,7 +328,7 @@ export default function MessagesPage() {
     setTimeout(scrollToBottom, 50)
 
     try {
-      const res = await livechatApi.sendMessage(selectedChat, userMsg)
+      const res: any = await livechatApi.sendMessage(selectedChat, userMsg, undefined, selectedBusiness?.id)
       if (res.success || res.data?.success) {
         // Reemplazar o actualizar mensaje con datos reales
         setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'sent', id: res.messageId || res.data?.messageId || m.id } : m))
@@ -294,7 +370,7 @@ export default function MessagesPage() {
           title: 'Subiendo...',
           description: 'Enviando archivo multimedia.',
         })
-        const res = await livechatApi.sendMessage(selectedChat, messageInput, base64)
+        const res: any = await livechatApi.sendMessage(selectedChat, messageInput, base64, selectedBusiness?.id)
         if (res.success || res.data?.success) {
           setMessageInput('')
           toast({
@@ -321,7 +397,7 @@ export default function MessagesPage() {
   const toggleBot = async () => {
     const newStatus = !isBotEnabled
     try {
-      await livechatApi.toggleBot(newStatus)
+      await livechatApi.toggleBot(newStatus, selectedBusiness?.id)
       setIsBotEnabled(newStatus)
       toast({
         title: newStatus ? 'Bot activado 🤖' : 'Bot pausado ⏸️',
@@ -343,7 +419,7 @@ export default function MessagesPage() {
     const newPaused = !currentlyPaused
     setPauseMap(prev => ({ ...prev, [phone]: newPaused }))
     try {
-      await livechatApi.pauseBotForChat(phone, newPaused)
+      await livechatApi.pauseBotForChat(phone, newPaused, selectedBusiness?.id)
       toast({
         title: newPaused ? 'IA silenciada ⏸️' : 'IA reactivada ▶️',
         description: newPaused ? 'El cliente será atendido de forma 100% manual.' : 'El bot de IA vuelve a gestionar esta conversación.',
@@ -362,7 +438,7 @@ export default function MessagesPage() {
   const handleDisconnect = async () => {
     if (!window.confirm('¿Desvincular WhatsApp Web? Tendrás que volver a escanear el QR.')) return
     try {
-      await livechatApi.disconnectWhatsApp()
+      await livechatApi.disconnectWhatsApp(selectedBusiness?.id)
       toast({
         title: 'Sesión cerrada',
         description: 'WhatsApp Web desvinculado con éxito.',
@@ -383,7 +459,7 @@ export default function MessagesPage() {
     setQrCode(null)
     setPairingCode(null)
     try {
-      const res = await livechatApi.startWhatsApp(usePairingCode, pairingNumber)
+      const res: any = await livechatApi.startWhatsApp(usePairingCode, pairingNumber, selectedBusiness?.id)
       if (res.qr) {
         setQrCode(res.qr)
       } else if (res.code) {
@@ -436,7 +512,7 @@ export default function MessagesPage() {
   const handleDeleteMessage = async (id: string) => {
     if (!window.confirm('¿Eliminar este mensaje?')) return
     try {
-      await livechatApi.deleteMessage(id)
+      await livechatApi.deleteMessage(id, selectedBusiness?.id)
       setMessages(prev => prev.filter(m => m.id !== id))
       toast({ title: 'Mensaje eliminado' })
     } catch (e) {
@@ -453,7 +529,7 @@ export default function MessagesPage() {
     if (!selectedChat) return
     if (!window.confirm('¿VACIAR TODA LA CONVERSACIÓN?')) return
     try {
-      await livechatApi.clearChat(selectedChat)
+      await livechatApi.clearChat(selectedChat, selectedBusiness?.id)
       setChats(prev => prev.filter(c => c.customer_phone !== selectedChat))
       setMessages([])
       setIsSelectionMode(false)
@@ -474,7 +550,7 @@ export default function MessagesPage() {
   const handleDeleteChatList = async (phone: string) => {
     if (!window.confirm('¿Eliminar chat por completo?')) return
     try {
-      await livechatApi.clearChat(phone)
+      await livechatApi.clearChat(phone, selectedBusiness?.id)
       setChats(prev => prev.filter(c => c.customer_phone !== phone))
       if (selectedChat === phone) {
          setSelectedChat(null)
@@ -499,7 +575,7 @@ export default function MessagesPage() {
     try {
       setSending(true)
       for (const id of selectedMessages) {
-        await livechatApi.deleteMessage(id)
+        await livechatApi.deleteMessage(id, selectedBusiness?.id)
       }
       setMessages(prev => prev.filter(m => !selectedMessages.includes(m.id)))
       setSelectedMessages([])
@@ -536,7 +612,7 @@ export default function MessagesPage() {
     socketRef.current = socket
 
     socket.on('connect', () => {
-      socket.emit('joinUser', selectedBusiness.userId || 'user-default')
+      socket.emit('joinUser', (selectedBusiness as any).userId || 'user-default')
     })
 
     // Recibir mensajes en tiempo real
@@ -639,7 +715,7 @@ export default function MessagesPage() {
     })
 
     return () => {
-      socket.emit('leaveUser', selectedBusiness.userId || 'user-default')
+      socket.emit('leaveUser', (selectedBusiness as any).userId || 'user-default')
       socket.disconnect()
     }
   }, [selectedBusiness, loadChats, loadBotStatus, loadWhatsAppStatus, toast])
@@ -698,16 +774,15 @@ export default function MessagesPage() {
     let result = chats
     
     // Filtrar por tab activo
-    if (activeTab === 'unread') {
-      result = chats.filter(c => {
-        const phoneSuffix = c.customer_phone.replace(/\D/g, '').slice(-9)
-        const count = Object.entries(unreadMap).reduce((acc, [k, v]) => {
-          return k.replace(/\D/g, '').slice(-9) === phoneSuffix ? acc + v : acc
-        }, 0)
-        return count > 0
-      })
+    if (activeTab === 'active') {
+      result = chats.filter(c => pauseMap[c.customer_phone] !== true)
     } else if (activeTab === 'paused') {
       result = chats.filter(c => pauseMap[c.customer_phone] === true)
+    }
+
+    // Filtrar por canal
+    if (selectedChannel !== 'all') {
+      result = result.filter(c => (c.platform || 'whatsapp') === selectedChannel)
     }
 
     if (!searchQuery.trim()) return result
@@ -728,19 +803,70 @@ export default function MessagesPage() {
       
       return phoneMatch || nameMatch || pushnameMatch || msgMatch
     })
-  }, [chats, searchQuery, activeTab, unreadMap, pauseMap])
+  }, [chats, searchQuery, activeTab, selectedChannel, unreadMap, pauseMap])
 
   const currentChat = chats.find(c => c.customer_phone === selectedChat)
 
+  const renderMessageBody = (body: string, source?: string) => {
+    const isAi = source === 'bot'
+    if (!isAi) {
+      return <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text px-1 text-slate-755">{body}</p>
+    }
+
+    // Check for suggestions like [Jueves, 14 Nov - 11:00 AM (Sugerir)]
+    const regex = /\[([^\]]+)\]/g
+    const parts = []
+    let lastIndex = 0
+    let match
+    
+    while ((match = regex.exec(body)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(<span key={lastIndex} className="text-slate-755">{body.substring(lastIndex, match.index)}</span>)
+      }
+      
+      const suggestionText = match[1]
+      const cleanText = suggestionText.replace('(Sugerir)', '').trim()
+      parts.push(
+        <span key={match.index} className="block mt-2 p-3 bg-white border border-violet-100 rounded-xl shadow-xs font-sans text-xs">
+          <span className="font-bold text-violet-700 block mb-1">📅 Sugerencia de Horario</span>
+          <span className="text-slate-600 block mb-2">{cleanText}</span>
+          <button 
+            type="button"
+            onClick={() => {
+              toast({
+                title: 'Sugerencia Enviada',
+                description: `Se agendó la sugerencia: ${cleanText}`,
+              })
+            }}
+            className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1"
+          >
+            Agendar (Sugerir)
+          </button>
+        </span>
+      )
+      lastIndex = regex.lastIndex
+    }
+    
+    if (lastIndex < body.length) {
+      parts.push(<span key={lastIndex} className="text-slate-755">{body.substring(lastIndex)}</span>)
+    }
+    
+    return (
+      <div className="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text px-1">
+        {parts.length > 0 ? parts : body}
+      </div>
+    )
+  }
+
   if (!selectedBusiness) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[85vh] text-center bg-gradient-to-br from-[#0f111a] via-[#151926] to-[#0f111a] rounded-3xl m-4 text-white shadow-2xl border border-white/5 relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
-        <Building2 className="w-24 h-24 text-indigo-400 mb-6 animate-pulse relative z-10" />
-        <h2 className="text-3xl font-extrabold mb-3 tracking-tight bg-gradient-to-r from-indigo-200 to-purple-300 bg-clip-text text-transparent relative z-10">Bandeja Omnicanal Exclusiva</h2>
-        <p className="text-slate-500 mb-8 max-w-md relative z-10">Gestiona conversaciones reales en tiempo real con IA hiper-personalizada. Selecciona un negocio para iniciar.</p>
+      <div className="flex flex-col items-center justify-center min-h-[85vh] text-center bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 rounded-3xl m-4 text-white shadow-2xl border border-white/5 relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
+        <Building2 className="w-24 h-24 text-blue-400 mb-6 animate-pulse relative z-10" />
+        <h2 className="text-3xl font-extrabold mb-3 tracking-tight bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent relative z-10">Bandeja Omnicanal Exclusiva</h2>
+        <p className="text-slate-400 mb-8 max-w-md relative z-10">Gestiona conversaciones reales en tiempo real con IA hiper-personalizada. Selecciona un negocio para iniciar.</p>
         <Link href="/businesses">
-          <button className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition-all text-white rounded-full px-8 py-3.5 font-bold shadow-lg shadow-indigo-500/20 relative z-10 active:scale-95 transform">
+          <button className="bg-blue-600 hover:bg-blue-700 transition-all text-white rounded-xl px-8 py-3.5 font-bold shadow-lg shadow-blue-500/20 relative z-10 active:scale-95 transform">
             Seleccionar Negocio
           </button>
         </Link>
@@ -749,42 +875,42 @@ export default function MessagesPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-140px)] bg-[#0d0e12] rounded-2xl overflow-hidden border border-white/10 shadow-2xl font-sans relative">
+    <div className="flex h-[calc(100vh-140px)] bg-slate-50 rounded-2xl overflow-hidden border border-slate-200/60 shadow-lg font-sans relative">
       
       {/* ── COL 1: CHAT LIST ── */}
-      <div className="w-80 md:w-[400px] flex flex-col border-r border-white/10 bg-[#12141c] shrink-0">
+      <div className="w-80 md:w-[400px] flex flex-col border-r border-slate-200 bg-slate-50 shrink-0">
         
         {/* Header List */}
-        <div className="h-[68px] px-4 py-2 flex items-center justify-between bg-[#181a24] border-b border-white/5">
+        <div className="h-[68px] px-4 py-2 flex items-center justify-between bg-white border-b border-slate-200/60">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center relative">
-              <User className="w-5 h-5 text-indigo-300" />
+            <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center relative">
+              <User className="w-5 h-5 text-blue-600" />
               {waStatus === 'connected' ? (
-                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 border-2 border-[#181a24] rounded-full" title="Conectado a WhatsApp" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full" title="Conectado a WhatsApp" />
               ) : waStatus === 'connecting' ? (
-                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-yellow-500 border-2 border-[#181a24] rounded-full animate-pulse" title="Conectando..." />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-yellow-500 border-2 border-white rounded-full animate-pulse" title="Conectando..." />
               ) : (
-                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 border-2 border-[#181a24] rounded-full" title="Desconectado" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full" title="Desconectado" />
               )}
             </div>
             <div>
-              <p className="text-xs text-slate-500 font-medium">Bandeja de Entrada</p>
-              <p className="text-[10px] text-indigo-400 font-bold tracking-wider flex items-center gap-1">
+              <p className="text-xs text-slate-700 font-bold font-syst">Bandeja de Entrada</p>
+              <p className="text-[9px] text-blue-600 font-black tracking-widest flex items-center gap-1">
                 {waStatus === 'connected' ? 'WHATSAPP ACTIVO' : 'WHATSAPP INACTIVO'}
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <button 
-              className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-all" 
+              className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all" 
               onClick={() => setShowNewChatModal(true)} 
               title="Nuevo Chat Manual"
             >
               <Plus className="w-4 h-4" />
             </button>
             <button 
-              className={`p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all ${isBotEnabled ? 'text-green-400' : 'text-slate-500'}`} 
+              className={`p-2 rounded-lg transition-all ${isBotEnabled ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`} 
               onClick={toggleBot} 
               title={isBotEnabled ? 'Pausar IA Global' : 'Activar IA Global'}
             >
@@ -792,21 +918,21 @@ export default function MessagesPage() {
             </button>
             <div className="relative">
               <button 
-                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-all" 
+                className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all" 
                 onClick={(e) => { e.stopPropagation(); setShowLeftMenu(!showLeftMenu); }}
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
               {showLeftMenu && (
-                <div className="absolute right-0 top-[45px] w-[220px] bg-[#1a1d29] border border-white/10 rounded-xl shadow-2xl py-2.5 z-50 text-[13.5px] text-slate-300" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => { handleStartWhatsApp(); setShowLeftMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-white/5 flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-400" /> Vincular WhatsApp (QR)
+                <div className="absolute right-0 top-[45px] w-[220px] bg-white border border-slate-200 rounded-xl shadow-xl py-2 z-50 text-[13px] text-slate-700" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => { handleStartWhatsApp(); setShowLeftMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 font-medium">
+                    <Sparkles className="w-4 h-4 text-blue-600" /> Vincular WhatsApp (QR)
                   </button>
-                  <button onClick={() => { loadChats(); setShowLeftMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-white/5 flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4 text-emerald-400" /> Refrescar conversaciones
+                  <button onClick={() => { loadChats(); setShowLeftMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 font-medium">
+                    <RefreshCw className="w-4 h-4 text-emerald-600" /> Refrescar conversaciones
                   </button>
-                  <div className="h-px bg-white/10 my-1.5" />
-                  <button onClick={() => { handleDisconnect(); setShowLeftMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-white/5 text-red-400 flex items-center gap-2">
+                  <div className="h-px bg-slate-100 my-1" />
+                  <button onClick={() => { handleDisconnect(); setShowLeftMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-600 flex items-center gap-2 font-medium">
                     <LogOut className="w-4 h-4" /> Desvincular teléfono
                   </button>
                 </div>
@@ -816,47 +942,90 @@ export default function MessagesPage() {
         </div>
 
         {/* Search */}
-        <div className="p-3 bg-[#12141c]">
-          <div className="relative bg-[#181a24] border border-white/5 rounded-xl flex items-center px-3 py-2 shadow-inner">
-            <Search className="w-4 h-4 text-slate-500 mr-3" />
+        <div className="p-3 bg-slate-50 border-b border-slate-200/50">
+          <div className="relative bg-white border border-slate-200 rounded-xl flex items-center px-3 py-2 shadow-xs">
+            <Search className="w-4 h-4 text-slate-400 mr-2" />
             <input 
               type="text" 
-              placeholder="Buscar chat, teléfono, mensaje..."
-              className="bg-transparent border-none focus:ring-0 text-sm w-full py-0 text-slate-200 placeholder:text-slate-300 focus:outline-none"
+              placeholder="Buscar chat, teléfono..."
+              className="bg-transparent border-none focus:ring-0 text-xs w-full py-0 text-slate-700 placeholder:text-slate-400 focus:outline-none"
               value={searchQuery} 
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-[#12141c]">
-          <button 
-            onClick={() => setActiveTab('todos')}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeTab === 'todos' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-white/5 text-slate-500 hover:bg-white/10'}`}
-          >
-            Todos
-          </button>
-          <button 
-            onClick={() => setActiveTab('unread')}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeTab === 'unread' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-white/5 text-slate-500 hover:bg-white/10'}`}
-          >
-            No leídos
-          </button>
-          <button 
-            onClick={() => setActiveTab('paused')}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeTab === 'paused' ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20' : 'bg-white/5 text-slate-500 hover:bg-white/10'}`}
-          >
-            IA Pausada
-          </button>
+        {/* Filter Tabs & Channel Circles */}
+        <div className="px-4 py-3 border-b border-slate-200/60 bg-slate-50 flex flex-col gap-3">
+          <div className="flex items-center gap-1.5 bg-slate-200/60 p-1 rounded-xl">
+            <button 
+              onClick={() => setActiveTab('todos')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-all ${activeTab === 'todos' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Todos
+            </button>
+            <button 
+              onClick={() => setActiveTab('active')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-all ${activeTab === 'active' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              IA Activa
+            </button>
+            <button 
+              onClick={() => setActiveTab('paused')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-all ${activeTab === 'paused' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Humano
+            </button>
+          </div>
+          
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Canales</span>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setSelectedChannel('all')}
+                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${selectedChannel === 'all' ? 'bg-slate-800 border-slate-800 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                title="Todos"
+              >
+                <Filter className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => setSelectedChannel('whatsapp')}
+                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${selectedChannel === 'whatsapp' ? 'bg-green-600 border-green-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-green-600'}`}
+                title="WhatsApp"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => setSelectedChannel('instagram')}
+                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${selectedChannel === 'instagram' ? 'bg-pink-600 border-pink-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-pink-600'}`}
+                title="Instagram"
+              >
+                <Instagram className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => setSelectedChannel('telegram')}
+                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${selectedChannel === 'telegram' ? 'bg-sky-500 border-sky-500 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-sky-500'}`}
+                title="Telegram"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => setSelectedChannel('messenger')}
+                className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${selectedChannel === 'messenger' ? 'bg-blue-600 border-blue-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-blue-600'}`}
+                title="Facebook Messenger"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Chats List */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto bg-slate-50/50">
           {loadingChats ? (
-            <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>
+            <div className="p-8 flex justify-center"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
           ) : filteredChats.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">Sin chats cargados</div>
+            <div className="p-8 text-center text-slate-400 text-xs font-medium uppercase tracking-wider">Sin chats cargados</div>
           ) : (
             filteredChats.map((chat) => {
               const chatPhone = chat.customer_phone
@@ -872,42 +1041,57 @@ export default function MessagesPage() {
                   key={chat.customer_phone}
                   onMouseEnter={() => setHoveredChatId(chat.customer_phone)}
                   onMouseLeave={() => setHoveredChatId(null)}
-                  className={`relative w-full h-[72px] flex items-center px-4 gap-3 border-b border-white/5 cursor-pointer transition-all duration-200 ${isSelected ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500' : 'hover:bg-white/5 border-l-2 border-l-transparent'}`}
+                  className={`relative w-full h-[72px] flex items-center px-4 gap-3 border-b border-slate-200/50 cursor-pointer transition-all duration-200 ${isSelected ? 'bg-white shadow-[0_4px_12px_rgba(0,0,0,0.03)] border-l-4 border-l-blue-600' : 'hover:bg-white/50 border-l-4 border-l-transparent'}`}
                   onClick={() => handleSelectChat(chat)}
                 >
-                  <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center shrink-0 relative bg-[#181a24] border ${isBotPaused ? 'border-orange-500/50' : 'border-white/10'}`}>
-                    {avatars[chat.customer_phone] && avatars[chat.customer_phone] !== 'default' ? (
-                      <img src={avatars[chat.customer_phone]} className="w-full h-full object-cover" alt="Avatar" />
-                    ) : (
-                      <User className={`w-5 h-5 ${isBotPaused ? 'text-orange-400' : 'text-slate-500'}`} />
-                    )}
+                  <div className="relative shrink-0">
+                    <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center bg-white border ${isBotPaused ? 'border-orange-300' : 'border-slate-200'}`}>
+                      {avatars[chat.customer_phone] && avatars[chat.customer_phone] !== 'default' ? (
+                        <img src={avatars[chat.customer_phone]} className="w-full h-full object-cover" alt="Avatar" />
+                      ) : (
+                        <User className={`w-5 h-5 ${isBotPaused ? 'text-orange-500' : 'text-slate-400'}`} />
+                      )}
+                    </div>
+                    {/* Platform Badge Overlay */}
+                    <div className={cn(
+                      "absolute -bottom-1 -right-1 rounded-full p-0.5 border text-white shadow-sm flex items-center justify-center w-5 h-5",
+                      chat.platform === 'telegram' && "bg-sky-500 border-sky-400",
+                      chat.platform === 'messenger' && "bg-blue-600 border-blue-500",
+                      chat.platform === 'instagram' && "bg-pink-600 border-pink-500",
+                      (chat.platform === 'whatsapp' || !chat.platform) && "bg-green-600 border-green-500"
+                    )}>
+                      {chat.platform === 'telegram' && <Send className="w-2.5 h-2.5" />}
+                      {chat.platform === 'messenger' && <MessageCircle className="w-2.5 h-2.5" />}
+                      {chat.platform === 'instagram' && <Instagram className="w-2.5 h-2.5" />}
+                      {(chat.platform === 'whatsapp' || !chat.platform) && <MessageSquare className="w-2.5 h-2.5" />}
+                    </div>
                   </div>
                   
                   <div className="flex-1 flex flex-col justify-center min-w-0 pr-1">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[14.5px] text-slate-200 truncate font-semibold">
+                      <span className="text-[14px] text-slate-800 truncate font-bold font-syst">
                         {getDisplayName(chat)}
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {isBotPaused && (
-                          <span className="text-[8.5px] bg-orange-500/20 text-orange-400 font-bold px-1.5 py-0.5 rounded-full border border-orange-500/30 uppercase">IA Off</span>
+                          <span className="text-[8px] bg-orange-50 text-orange-600 font-black px-1.5 py-0.5 rounded-full border border-orange-100 uppercase">HUMANO</span>
                         )}
-                        <span className={`text-[10px] ${isSelected ? 'text-indigo-400 font-bold' : 'text-slate-500'}`}>
+                        <span className={`text-[10px] ${isSelected ? 'text-blue-600 font-bold' : 'text-slate-400 font-medium'}`}>
                           {chat.last_message_at ? formatDateLabel(new Date(chat.last_message_at)) : ''}
                         </span>
                       </div>
                     </div>
                     
                     <div className="flex items-center justify-between">
-                      <div className="text-[12.5px] text-slate-500 truncate flex items-center gap-1.5 flex-1 min-w-0">
-                        {chat.last_direction === 'outgoing' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-cyan-400" />}
-                        {chat.last_media_type === 'image' && <Paperclip className="w-3 h-3 text-slate-500" />}
-                        {chat.last_media_type === 'document' && <Paperclip className="w-3 h-3 text-slate-500" />}
-                        {chat.last_media_type === 'video' && <Paperclip className="w-3 h-3 text-slate-500" />}
-                        <span className={unreadCount > 0 ? 'font-bold text-slate-100 truncate' : 'truncate text-slate-500'}>{chat.last_message || 'Inicia una conversación.'}</span>
+                      <div className="text-[12.5px] text-slate-500 truncate flex items-center gap-1.5 flex-1 min-w-0 font-medium">
+                        {chat.last_direction === 'outgoing' && <CheckCheck className="w-3.5 h-3.5 shrink-0 text-blue-500" />}
+                        {chat.last_media_type === 'image' && <Paperclip className="w-3 h-3 text-slate-400" />}
+                        {chat.last_media_type === 'document' && <Paperclip className="w-3 h-3 text-slate-400" />}
+                        {chat.last_media_type === 'video' && <Paperclip className="w-3 h-3 text-slate-400" />}
+                        <span className={unreadCount > 0 ? 'font-black text-slate-800 truncate' : 'truncate text-slate-500'}>{chat.last_message || 'Inicia una conversación.'}</span>
                       </div>
                       {unreadCount > 0 && (
-                        <span className="ml-2 shrink-0 min-w-[18px] h-[18px] bg-indigo-600 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1 animate-pulse">
+                        <span className="ml-2 shrink-0 min-w-[18px] h-[18px] bg-blue-600 text-white text-[10px] font-black rounded-full flex items-center justify-center px-1">
                           {unreadCount > 99 ? '99+' : unreadCount}
                         </span>
                       )}
@@ -921,8 +1105,8 @@ export default function MessagesPage() {
                         onClick={(e) => handleToggleBotPause(chat.customer_phone, e)}
                         className={`p-1.5 rounded-lg border transition-all ${
                           isBotPaused
-                            ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20 border-green-500/20'
-                            : 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border-orange-500/20'
+                            ? 'bg-green-55 text-green-600 hover:bg-green-100 border-green-200'
+                            : 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200'
                         }`}
                         title={isBotPaused ? 'Reactivar IA' : 'Pausar IA'}
                       >
@@ -930,7 +1114,7 @@ export default function MessagesPage() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteChatList(chat.customer_phone) }}
-                        className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all"
+                        className="p-1.5 rounded-lg bg-red-50 border border-red-100 text-red-650 hover:bg-red-100 transition-all"
                         title="Eliminar chat"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -945,34 +1129,48 @@ export default function MessagesPage() {
       </div>
 
       {/* ── COL 2: CHAT MAIN ── */}
-      <div className="flex-1 flex flex-col bg-[#090a0f] relative">
+      <div className="flex-1 flex flex-col bg-white relative">
         {selectedChat ? (
           <>
             {/* Header Chat */}
-            <div className="h-[68px] px-5 py-2 flex items-center justify-between bg-[#12141c]/90 backdrop-blur-md z-25 border-b border-white/5">
+            <div className="h-[68px] px-5 py-2 flex items-center justify-between bg-white border-b border-slate-200/60 z-20">
               {isSelectionMode ? (
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-6">
-                    <button onClick={() => { setIsSelectionMode(false); setSelectedMessages([]) }} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-slate-300 transition-all"><X className="w-5 h-5" /></button>
-                    <span className="text-sm text-slate-200 font-medium">{selectedMessages.length} seleccionados</span>
+                    <button onClick={() => { setIsSelectionMode(false); setSelectedMessages([]) }} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 transition-all"><X className="w-5 h-5" /></button>
+                    <span className="text-sm text-slate-700 font-bold">{selectedMessages.length} seleccionados</span>
                   </div>
-                  <button onClick={handleBulkDelete} className="p-2 bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30 rounded-lg transition-all"><Trash2 className="w-5 h-5" /></button>
+                  <button onClick={handleBulkDelete} className="p-2 bg-red-50 text-red-600 hover:bg-red-150 border border-red-150 rounded-lg transition-all"><Trash2 className="w-5 h-5" /></button>
                 </div>
               ) : (
                 <>
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => setShowProfile(!showProfile)}>
-                      <div className="w-10 h-10 bg-[#181a24] rounded-full flex items-center justify-center overflow-hidden border border-white/10">
-                        {avatars[selectedChat] && avatars[selectedChat] !== 'default' ? (
-                          <img src={avatars[selectedChat]} className="w-full h-full object-cover" alt="Avatar" />
-                        ) : (
-                          <User className="w-5 h-5 text-slate-500" />
-                        )}
+                      <div className="relative">
+                        <div className="w-10 h-10 bg-slate-55 rounded-full flex items-center justify-center overflow-hidden border border-slate-200">
+                          {avatars[selectedChat] && avatars[selectedChat] !== 'default' ? (
+                            <img src={avatars[selectedChat]} className="w-full h-full object-cover" alt="Avatar" />
+                          ) : (
+                            <User className="w-5 h-5 text-slate-400" />
+                          )}
+                        </div>
+                        <div className={cn(
+                          "absolute -bottom-1 -right-1 rounded-full p-0.5 border text-white shadow-sm flex items-center justify-center w-[18px] h-[18px]",
+                          currentChat?.platform === 'telegram' && "bg-sky-500 border-sky-400",
+                          currentChat?.platform === 'messenger' && "bg-blue-600 border-blue-500",
+                          currentChat?.platform === 'instagram' && "bg-pink-600 border-pink-500",
+                          (currentChat?.platform === 'whatsapp' || !currentChat?.platform) && "bg-green-600 border-green-500"
+                        )}>
+                          {currentChat?.platform === 'telegram' && <Send className="w-2.5 h-2.5" />}
+                          {currentChat?.platform === 'messenger' && <MessageCircle className="w-2.5 h-2.5" />}
+                          {currentChat?.platform === 'instagram' && <Instagram className="w-2.5 h-2.5" />}
+                          {(currentChat?.platform === 'whatsapp' || !currentChat?.platform) && <MessageSquare className="w-2.5 h-2.5" />}
+                        </div>
                       </div>
                       <div>
-                        <h3 className="text-sm text-slate-200 font-bold leading-none mb-1">{getDisplayName(currentChat || { customer_phone: selectedChat } as Chat)}</h3>
-                        <p className="text-[10px] text-emerald-400 leading-none font-medium flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /> activo
+                        <h3 className="text-sm text-slate-800 font-bold leading-none mb-1 font-syst">{getDisplayName(currentChat || { customer_phone: selectedChat } as Chat)}</h3>
+                        <p className="text-[10px] text-emerald-600 leading-none font-bold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> activo
                         </p>
                       </div>
                     </div>
@@ -985,29 +1183,29 @@ export default function MessagesPage() {
                           onClick={(e) => handleToggleBotPause(selectedChat, e)}
                           className={`ml-4 flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black transition-all border ${
                             isSelectedBotPaused
-                              ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20'
-                              : 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20'
+                              ? 'bg-orange-50 border-orange-100 text-orange-600 hover:bg-orange-100'
+                              : 'bg-green-50 border-green-100 text-green-600 hover:bg-green-100'
                           }`}
                           title={isSelectedBotPaused ? 'Reactivar IA' : 'Silenciar IA'}
                         >
-                          <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-current" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                           <span>{isSelectedBotPaused ? 'IA PAUSADA' : 'IA ACTIVA'}</span>
                         </button>
                       );
                     })()}
                   </div>
                   
-                  <div className="flex items-center gap-4 text-slate-500">
-                    <button className="p-2 hover:bg-white/5 rounded-lg hover:text-white transition-all" onClick={() => setShowChatSearch(!showChatSearch)}>
+                  <div className="flex items-center gap-4 text-slate-450">
+                    <button className="p-2 hover:bg-slate-100 rounded-lg hover:text-slate-705 transition-all" onClick={() => setShowChatSearch(!showChatSearch)}>
                        <Search className="w-4 h-4" />
                     </button>
                     <div className="relative">
-                      <button className="p-2 hover:bg-white/5 rounded-lg hover:text-white transition-all" onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}><MoreVertical className="w-4 h-4" /></button>
+                      <button className="p-2 hover:bg-slate-100 rounded-lg hover:text-slate-705 transition-all" onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}><MoreVertical className="w-4 h-4" /></button>
                       {showMenu && (
-                        <div className="absolute right-0 top-[45px] w-[200px] bg-[#1a1d29] border border-white/10 rounded-xl shadow-2xl py-2 z-50 text-[13.5px] text-slate-300" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => { setShowProfile(true); setShowMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-white/5">Info. del contacto</button>
-                          <button onClick={() => { setIsSelectionMode(true); setShowMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-white/5">Seleccionar mensajes</button>
-                          <button onClick={() => { handleClearChat(); setShowMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-white/5 text-red-400">Vaciar chat</button>
+                        <div className="absolute right-0 top-[45px] w-[200px] bg-white border border-slate-200 rounded-xl shadow-xl py-2 z-50 text-[13px] text-slate-700" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => { setShowProfile(true); setShowMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 font-medium">Info. del contacto</button>
+                          <button onClick={() => { setIsSelectionMode(true); setShowMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 font-medium">Seleccionar mensajes</button>
+                          <button onClick={() => { handleClearChat(); setShowMenu(false) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-650 font-medium">Vaciar chat</button>
                         </div>
                       )}
                     </div>
@@ -1018,20 +1216,20 @@ export default function MessagesPage() {
 
             {/* Local Chat Search Bar */}
             {showChatSearch && (
-              <div className="px-4 py-2 bg-[#12141c] border-b border-white/5 flex items-center gap-3 z-20 shadow-lg">
-                <button onClick={() => { setShowChatSearch(false); setChatSearchQuery('') }} className="hover:bg-white/5 p-1.5 rounded-lg transition-colors">
+              <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-3 z-20 shadow-sm">
+                <button onClick={() => { setShowChatSearch(false); setChatSearchQuery('') }} className="hover:bg-slate-200 p-1.5 rounded-lg transition-colors">
                   <X className="w-4 h-4 text-slate-500" />
                 </button>
                 <input 
                   autoFocus
                   type="text" 
                   placeholder="Buscar mensaje en este chat..." 
-                  className="flex-1 text-sm bg-transparent border-none focus:ring-0 text-slate-200 py-1 outline-none"
+                  className="flex-1 text-xs bg-transparent border-none focus:ring-0 text-slate-700 py-1 outline-none font-medium"
                   value={chatSearchQuery}
                   onChange={(e) => setChatSearchQuery(e.target.value)}
                 />
                 {chatSearchQuery.trim() && (
-                  <span className="text-[11px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 shrink-0 font-bold">
+                  <span className="text-[10px] text-blue-650 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100 shrink-0 font-bold">
                     {filteredMessages.length === 0 ? 'Sin resultados' : `${filteredMessages.length} coincidencia(s)`}
                   </span>
                 )}
@@ -1039,23 +1237,34 @@ export default function MessagesPage() {
             )}
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto relative custom-scrollbar flex flex-col p-4 md:px-12 lg:px-20 z-10">
-              {/* Starry Dark Overlay background */}
-              <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat"></div>
-              
+            <div className="flex-1 overflow-y-auto relative flex flex-col p-4 md:px-12 lg:px-20 z-10 bg-slate-50/20">
               <div className="relative z-10 flex flex-col space-y-3">
-                <div className="self-center bg-yellow-500/10 border border-yellow-500/20 px-4 py-1.5 rounded-full text-[10.5px] text-yellow-500 font-semibold tracking-wider flex items-center gap-2 uppercase">
+                <div className="self-center bg-blue-50 border border-blue-100 px-4 py-1.5 rounded-full text-[10.5px] text-blue-700 font-bold tracking-wider flex items-center gap-2 uppercase">
                    <Shield className="w-3.5 h-3.5" /> Encriptación inteligente y WebSocket activo
                 </div>
 
                 {messageGroups.map((group, gIdx) => (
                   <div key={gIdx} className="flex flex-col space-y-3">
-                    <div className="self-center bg-white/5 border border-white/10 px-4 py-1 rounded-full text-[11px] text-slate-500 uppercase tracking-wider font-bold mb-1">
+                    <div className="self-center bg-slate-100 border border-slate-200 px-3.5 py-1 rounded-full text-[10px] text-slate-500 uppercase tracking-wider font-black mb-1">
                       {formatDateLabel(group.date)}
                     </div>
                     {group.messages.map((msg, idx) => {
                       const isIncoming = msg.direction === 'incoming'
                       const isSelected = selectedMessages.includes(msg.id)
+                      const isAi = msg.source === 'bot'
+                      const isSystem = msg.body.includes('actualizó la cita en el CRM') || msg.body.includes('Se emitió la boleta electrónica') || msg.source === 'system'
+
+                      if (isSystem) {
+                        return (
+                          <div key={msg.id || idx} className="self-center bg-blue-50 border border-blue-100 px-4 py-3 rounded-2xl text-xs text-blue-800 font-semibold max-w-[85%] shadow-xs flex items-start gap-3 my-2">
+                            <Calendar className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-extrabold text-[11px] uppercase tracking-wider text-blue-900 font-syst">CRM Sync</p>
+                              <p className="text-slate-600 text-[12px] mt-0.5 font-medium">{msg.body}</p>
+                            </div>
+                          </div>
+                        )
+                      }
                       
                       return (
                         <div 
@@ -1065,17 +1274,31 @@ export default function MessagesPage() {
                         >
                           {isSelectionMode && (
                             <div className="mr-2 flex items-center shrink-0">
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-500' : 'border-slate-600 bg-[#12141c]'}`}>
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-blue-500' : 'border-slate-300 bg-white'}`}>
                                   {isSelected && <Check className="w-3 h-3 text-white" />}
                                 </div>
                             </div>
                           )}
 
-                          <div className={`max-w-[80%] md:max-w-[70%] px-3 pt-2.5 pb-1 rounded-2xl relative transition-all shadow-md border ${
+                          <div className={`max-w-[80%] md:max-w-[70%] px-3.5 pt-2.5 pb-1 rounded-2xl relative transition-all shadow-xs border ${
                             isIncoming 
-                              ? (isSelected ? 'bg-slate-800' : 'bg-[#181a24]') + ' text-slate-200 rounded-tl-none border-white/5' 
-                              : (isSelected ? 'bg-indigo-900/60' : 'bg-indigo-600/15') + ' text-slate-200 rounded-tr-none border-indigo-500/20'
+                              ? 'bg-white text-slate-700 rounded-tl-none border-slate-200/60' 
+                              : isAi
+                                ? 'bg-violet-50 text-violet-900 rounded-tr-none border-violet-100 shadow-[0_2px_8px_rgba(139,92,246,0.04)]'
+                                : 'bg-blue-600 text-white rounded-tr-none border-blue-600'
                           }`}>
+                            {/* Platform badge for incoming message */}
+                            {isIncoming && (
+                              <div className="flex items-center gap-1.5 mb-1.5 opacity-80">
+                                {msg.platform === 'telegram' && <Send className="w-3 h-3 text-sky-500" />}
+                                {msg.platform === 'messenger' && <MessageCircle className="w-3 h-3 text-blue-500" />}
+                                {msg.platform === 'instagram' && <Instagram className="w-3 h-3 text-pink-500" />}
+                                {(msg.platform === 'whatsapp' || !msg.platform) && <MessageSquare className="w-3 h-3 text-green-500" />}
+                                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 font-mono">
+                                  {msg.platform || 'whatsapp'}
+                                </span>
+                              </div>
+                            )}
                             
                             {/* MULTIMEDIA RENDERER */}
                             {msg.mediaUrl && (
@@ -1084,44 +1307,42 @@ export default function MessagesPage() {
                                   <img 
                                     src={msg.mediaUrl} 
                                     alt="Imagen adjunta" 
-                                    className="max-h-[250px] w-full object-cover rounded-xl border border-white/10"
+                                    className="max-h-[250px] w-full object-cover rounded-xl border border-slate-200"
                                   />
                                 )}
                                 {(msg.mediaType === 'video') && (
                                   <video 
                                     src={msg.mediaUrl} 
                                     controls 
-                                    className="max-h-[250px] w-full rounded-xl border border-white/10"
+                                    className="max-h-[250px] w-full rounded-xl border border-slate-200"
                                   />
                                 )}
                                 {(msg.mediaType === 'document') && (
                                   <div 
-                                    className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-all cursor-pointer backdrop-blur-md shadow-inner"
+                                    className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-all cursor-pointer shadow-xs"
                                     onClick={() => window.open(msg.mediaUrl, '_blank')}
                                   >
-                                    <div className="w-10 h-10 bg-red-600 rounded-lg flex items-center justify-center text-white font-extrabold shadow-md shrink-0">
-                                      DOC
+                                    <div className="w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center text-white font-extrabold shadow-sm shrink-0 text-xs">
+                                      PDF
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-bold text-slate-200 truncate">Documento adjunto</p>
-                                      <p className="text-[10px] text-indigo-400 font-semibold">Clic para ver documento</p>
+                                      <p className="text-xs font-bold text-slate-700 truncate font-syst">Documento adjunto</p>
+                                      <p className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">Ver Documento</p>
                                     </div>
                                   </div>
                                 )}
                                 {(msg.mediaType === 'audio') && (
-                                  <div className="flex items-center gap-2 p-2 bg-white/5 rounded-lg min-w-[200px]">
+                                  <div className="flex items-center gap-2 p-2 bg-slate-55 rounded-lg min-w-[200px] border border-slate-200">
                                     <audio src={msg.mediaUrl} controls className="w-full h-8 opacity-90" />
                                   </div>
                                 )}
                               </div>
                             )}
 
-                            <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap pr-10 min-h-[16px] px-1 select-text">
-                              {msg.body}
-                            </p>
+                            {renderMessageBody(msg.body, msg.source)}
                             
                             <div className="flex items-center gap-1.5 justify-end mt-1.5 px-1">
-                              <span className="text-[9.5px] text-slate-500">
+                              <span className={`text-[9px] ${!isIncoming && !isAi ? 'text-blue-250' : 'text-slate-400'}`}>
                                 {(() => {
                                   try {
                                     const d = new Date(msg.created_at || Date.now())
@@ -1133,17 +1354,17 @@ export default function MessagesPage() {
                               </span>
                               {!isIncoming && (
                                 <div className="flex items-center gap-1 shrink-0 select-none scale-90">
-                                  {msg.source === 'bot' && (
-                                    <span className="text-[8.5px] text-green-400 bg-green-500/10 font-black px-1.5 py-0.5 rounded border border-green-500/20 uppercase tracking-widest">
+                                  {isAi && (
+                                    <span className="text-[8px] text-violet-600 bg-violet-100 font-black px-1.5 py-0.5 rounded border border-violet-200 uppercase tracking-widest">
                                       🤖 AI
                                     </span>
                                   )}
                                   {msg.status === 'read' ? (
-                                    <CheckCheck className="w-3.5 h-3.5 text-cyan-400" />
+                                    <CheckCheck className={`w-3.5 h-3.5 ${isAi ? 'text-violet-500' : 'text-white'}`} />
                                   ) : msg.status === 'delivered' || msg.status === 'sent' ? (
-                                    <CheckCheck className="w-3.5 h-3.5 text-slate-500" />
+                                    <CheckCheck className={`w-3.5 h-3.5 ${isAi ? 'text-slate-400' : 'text-slate-200'}`} />
                                   ) : (
-                                    <Clock className="w-3.5 h-3.5 text-slate-300" />
+                                    <Clock className={`w-3.5 h-3.5 ${isAi ? 'text-slate-450' : 'text-slate-300'}`} />
                                   )}
                                 </div>
                               )}
@@ -1154,14 +1375,14 @@ export default function MessagesPage() {
                               <div className="absolute right-1 top-1.5 opacity-0 group-hover/msg:opacity-100 transition-all duration-150">
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); setOpenMsgMenuId(openMsgMenuId === msg.id ? null : msg.id) }} 
-                                  className="p-1 rounded-full bg-[#1e2230] border border-white/5 text-slate-500 hover:text-slate-200 shadow-lg"
+                                  className="p-1 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-slate-800 shadow-md"
                                 >
                                   <ChevronRight className="w-3.5 h-3.5 rotate-90" />
                                 </button>
                                 {openMsgMenuId === msg.id && (
-                                  <div className="absolute right-0 top-7 w-[150px] bg-[#1a1d29] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-[13px] font-normal text-left">
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.id) }} className="w-full text-left px-4 py-2 hover:bg-white/5 text-red-400">Eliminar</button>
-                                    <button onClick={(e) => { e.stopPropagation(); setOpenMsgMenuId(null); toggleMessageSelection(msg.id) }} className="w-full text-left px-4 py-2 hover:bg-white/5 text-slate-300">Seleccionar</button>
+                                  <div className="absolute right-0 top-7 w-[150px] bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-[13px] font-normal text-left text-slate-700">
+                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.id) }} className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-650">Eliminar</button>
+                                    <button onClick={(e) => { e.stopPropagation(); setOpenMsgMenuId(null); toggleMessageSelection(msg.id) }} className="w-full text-left px-4 py-2 hover:bg-slate-50">Seleccionar</button>
                                   </div>
                                 )}
                               </div>
@@ -1177,21 +1398,21 @@ export default function MessagesPage() {
             </div>
 
             {/* Input Send Message Area */}
-            <div className="px-5 py-3.5 bg-[#12141c] flex items-center gap-3 border-t border-white/5 relative z-20">
+            <div className="px-5 py-3.5 bg-slate-50 flex items-center gap-3 border-t border-slate-200/60 relative z-20">
               
               {/* EMOJI PICKER */}
               {showEmojiPicker && (
-                <div className="absolute bottom-[70px] left-4 bg-[#1a1d29] border border-white/10 shadow-2xl rounded-xl p-3 w-[290px] z-50 grid grid-cols-5 gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="absolute bottom-[70px] left-4 bg-white border border-slate-200 shadow-xl rounded-xl p-3 w-[290px] z-50 grid grid-cols-5 gap-2" onClick={(e) => e.stopPropagation()}>
                   {['😀','😂','😍','😎','🙏','👍','🔥','✨','🚀','❤️','💡','💰','🤖','✅','❌','📦','🚚','🛍️','📈','🚨'].map(emoji => (
-                    <button key={emoji} type="button" className="text-xl hover:bg-white/5 rounded p-1.5 transition-colors" onClick={() => { setMessageInput(prev => prev + emoji) }}>
+                    <button key={emoji} type="button" className="text-xl hover:bg-slate-55 rounded p-1.5 transition-colors" onClick={() => { setMessageInput(prev => prev + emoji) }}>
                       {emoji}
                     </button>
                   ))}
                 </div>
               )}
 
-              <div className="flex items-center gap-2 text-slate-500">
-                <button type="button" onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(!showEmojiPicker); }} className="p-2 hover:bg-white/5 rounded-lg hover:text-white transition-all">
+              <div className="flex items-center gap-2 text-slate-400">
+                <button type="button" onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(!showEmojiPicker); }} className="p-2 hover:bg-slate-100 rounded-lg hover:text-slate-600 transition-all">
                   <Smile className="w-5 h-5" />
                 </button>
                 <input 
@@ -1201,42 +1422,41 @@ export default function MessagesPage() {
                   accept="image/*,video/*,audio/*,application/pdf"
                   onChange={handleFileUpload}
                 />
-                <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-white/5 rounded-lg hover:text-white transition-all">
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-slate-100 rounded-lg hover:text-slate-600 transition-all">
                   <Plus className="w-5 h-5" />
                 </button>
               </div>
               
-              <form onSubmit={handleSendMessage} className="flex-1 flex items-center bg-[#090a0f] border border-white/5 focus-within:border-indigo-500/40 rounded-xl px-3.5 py-2.5 shadow-inner">
+              <form onSubmit={handleSendMessage} className="flex-1 flex items-center bg-white border border-slate-200 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 rounded-xl px-3.5 py-2.5 shadow-xs">
                 <input 
                   type="text" 
                   placeholder="Escribe un mensaje aquí..."
-                  className="bg-transparent border-none focus:ring-0 text-[14px] w-full py-0 text-slate-200 placeholder:text-slate-200 focus:outline-none"
+                  className="bg-transparent border-none focus:ring-0 text-[14px] w-full py-0 text-slate-700 placeholder:text-slate-400 focus:outline-none"
                   value={messageInput} 
                   onChange={(e) => setMessageInput(e.target.value)}
                   disabled={sending}
                 />
               </form>
               
-              <div className="text-slate-500">
+              <div className="text-slate-400">
                 {messageInput.trim() ? (
-                  <button onClick={() => handleSendMessage()} className="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-600/30 transition-all scale-105"><Send className="w-4 h-4" /></button>
+                  <button onClick={() => handleSendMessage()} className="p-2.5 bg-blue-600 hover:bg-blue-750 text-white rounded-xl shadow-md transition-all scale-105"><Send className="w-4 h-4" /></button>
                 ) : (
-                  <button type="button" className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-slate-300 transition-all"><Mic className="w-4 h-4" /></button>
+                  <button type="button" className="p-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-all"><Mic className="w-4 h-4" /></button>
                 )}
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-[#090a0f] z-10 relative">
-            <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat"></div>
-            <div className="w-[260px] opacity-20 mb-8 filter invert drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50/30 z-10 relative">
+            <div className="w-[180px] opacity-15 mb-8">
               <img src="https://static.whatsapp.net/rsrc.php/v3/y6/r/wa669ae5z23.png" alt="WhatsApp Web" />
             </div>
-            <h3 className="text-2xl font-light text-slate-200 mb-3 tracking-wide">Sysbot Live Chat Omnicanal</h3>
-            <p className="text-slate-500 text-sm max-w-sm mx-auto leading-relaxed">
+            <h3 className="text-2xl font-light text-slate-700 mb-3 tracking-wide font-syst">Sysbot Live Chat Omnicanal</h3>
+            <p className="text-slate-450 text-xs max-w-sm mx-auto leading-relaxed font-medium">
               Consola unificada premium conectada con WhatsApp, IA y base de datos multi-tenant aislada.
             </p>
-            <div className="mt-12 flex items-center gap-2 text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-4 py-1.5 text-xs font-bold shadow-md">
+            <div className="mt-12 flex items-center gap-2 text-blue-600 bg-blue-50 border border-blue-100 rounded-full px-4 py-1.5 text-xs font-black shadow-xs">
                <Shield className="w-3.5 h-3.5" /> Servidor Socket.IO sincronizado
             </div>
           </div>
@@ -1245,104 +1465,164 @@ export default function MessagesPage() {
 
       {/* ── COL 3: PROFILE SIDEBAR ── */}
       {selectedChat && showProfile && (
-        <div className="w-[360px] border-l border-white/10 bg-[#12141c] flex flex-col z-30 shrink-0">
-          <div className="h-[68px] px-5 flex items-center gap-4 bg-[#181a24] text-slate-200 border-b border-white/5">
-            <button onClick={() => setShowProfile(false)} className="p-1.5 hover:bg-white/5 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
-            <span className="text-sm font-bold">Perfil del Cliente</span>
+        <div className="w-[360px] border-l border-slate-200 bg-slate-50 flex flex-col z-30 shrink-0">
+          <div className="h-[68px] px-5 flex items-center gap-4 bg-white text-slate-800 border-b border-slate-200/60">
+            <button onClick={() => setShowProfile(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
+            <span className="text-sm font-bold font-syst">Perfil del Cliente</span>
           </div>
           
-          <div className="overflow-y-auto flex-1 bg-[#090a0f] custom-scrollbar">
+          <div className="overflow-y-auto flex-1 bg-slate-50/50 custom-scrollbar p-4 space-y-4">
              {/* Photo & Name */}
-             <div className="bg-[#12141c] px-6 py-8 flex flex-col items-center border-b border-white/5 mb-3">
-                <div className="w-32 h-32 bg-[#181a24] rounded-full flex items-center justify-center overflow-hidden mb-4 border-2 border-indigo-500/20 shadow-2xl">
+             <div className="bg-white border border-slate-200/60 px-6 py-6 flex flex-col items-center rounded-2xl shadow-xs">
+                <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center overflow-hidden mb-3.5 border border-slate-200 shadow-sm">
                   {avatars[selectedChat] && avatars[selectedChat] !== 'default' ? (
                     <img src={avatars[selectedChat]} className="w-full h-full object-cover" alt="Avatar" />
                   ) : (
-                    <User className="w-16 h-16 text-slate-500" />
+                    <User className="w-10 h-10 text-slate-400" />
                   )}
                 </div>
-                <h4 className="text-base text-slate-200 font-bold mb-1 text-center">{getDisplayName(currentChat || {} as Chat)}</h4>
-                <p className="text-xs text-indigo-400 font-semibold">{formatPhone(selectedChat)}</p>
+                <h4 className="text-sm text-slate-800 font-bold mb-1 text-center font-syst">{getDisplayName(currentChat || {} as Chat)}</h4>
+                <p className="text-xs text-blue-600 font-bold font-mono">{formatPhone(selectedChat)}</p>
              </div>
 
              {/* CRM Integration */}
-             <div className="p-4">
-               {loadingProfile ? (
-                 <div className="py-8 flex justify-center"><div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>
-               ) : profile ? (
-                 <div className="space-y-3">
-                   <div className="bg-[#12141c] p-4 rounded-xl border border-white/5 shadow-md">
-                      <p className="text-[10px] text-indigo-400 font-black mb-3 uppercase tracking-wider">RESUMEN DE NEGOCIO</p>
-                      <div className="space-y-2.5 text-xs text-slate-300">
-                        <div className="flex justify-between items-center">
-                          <span>Total Pedidos:</span>
-                          <span className="font-bold text-slate-200 bg-white/5 px-2 py-0.5 rounded">{profile.stats.total_orders}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span>Inversión Total:</span>
-                          <span className="font-bold text-emerald-400">S/ {Number(profile.stats.total_spent).toFixed(2)}</span>
-                        </div>
-                        {Number(profile.stats.total_pending) > 0 && (
-                          <div className="flex justify-between items-center text-red-400 bg-red-500/10 p-2 rounded border border-red-500/20 mt-2 font-bold">
-                            <span>Saldo Pendiente:</span>
-                            <span>S/ {Number(profile.stats.total_pending).toFixed(2)}</span>
-                          </div>
-                        )}
-                      </div>
-                   </div>
-
-                   {profile.lastOrders && profile.lastOrders.length > 0 && (
-                     <div className="bg-[#12141c] p-4 rounded-xl border border-white/5 shadow-md">
-                        <p className="text-[10px] text-slate-500 font-black mb-3 uppercase tracking-wider">ÚLTIMOS PEDIDOS</p>
-                        <div className="space-y-3">
-                          {profile.lastOrders.map((order: any) => (
-                            <div key={order.id} className="border-b border-white/5 pb-2.5 last:border-0 last:pb-0">
-                              <div className="flex justify-between text-[11px] mb-1">
-                                <span className="font-semibold text-slate-300">#{order.id.slice(0, 8).toUpperCase()}</span>
-                                <span className="text-slate-500">{format(new Date(order.created_at), 'dd/MM/yy')}</span>
-                              </div>
-                              <div className="flex justify-between text-xs">
-                                <span className="text-slate-500 capitalize">{order.status}</span>
-                                <span className="font-bold text-slate-200">S/ {Number(order.total).toFixed(2)}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+             {loadingProfile ? (
+               <div className="py-8 flex justify-center"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+             ) : (
+                <>
+                  {/* Warning manual intervention panel */}
+                  <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl shadow-xs space-y-3">
+                     <div className="flex items-start gap-2.5">
+                       <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                       <div>
+                         <p className="text-xs font-black text-rose-900 uppercase tracking-wide">Intervención Requerida</p>
+                         <p className="text-[11px] text-rose-650 mt-1 leading-relaxed font-medium">
+                           El cliente ha pausado o requiere soporte directo. Detén el bot de IA para responder de forma manual.
+                         </p>
+                       </div>
                      </div>
-                   )}
-                 </div>
-               ) : (
-                 <div className="bg-[#12141c] p-4 rounded-xl border border-white/5 text-center text-xs text-slate-500 shadow-md">
-                   Sin historial de compras en CRM
-                 </div>
-               )}
-             </div>
+                     <div className="flex flex-col gap-2">
+                       {(() => {
+                         const isBotPaused = pauseMap[selectedChat] || false
+                         return (
+                           <button
+                             onClick={(e) => handleToggleBotPause(selectedChat, e)}
+                             className={cn(
+                               'w-full py-2.5 px-4 rounded-xl font-bold text-xs border transition-all duration-300 flex items-center justify-center gap-2 uppercase',
+                               isBotPaused
+                                 ? 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
+                                 : 'bg-red-600 hover:bg-red-700 text-white border-transparent'
+                             )}
+                           >
+                             {isBotPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                             {isBotPaused ? 'ACTIVAR AGENTE DE IA' : 'PAUSAR IA'}
+                           </button>
+                         )
+                       })()}
+
+                       <button
+                         onClick={handleGenerateInvoice}
+                         disabled={billingLoading}
+                         className="w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-750 text-white shadow-sm border border-transparent transition-all duration-300 flex items-center justify-center gap-2"
+                       >
+                         {billingLoading ? (
+                           <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                         ) : (
+                           <Calendar className="w-4 h-4" />
+                         )}
+                         EMITIR COMPROBANTE (FACTURAR)
+                       </button>
+                     </div>
+                  </div>
+
+                  {/* Profile Details Card */}
+                  <div className="bg-white border border-slate-200/60 p-4 rounded-2xl shadow-xs space-y-4">
+                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">RESUMEN DE NEGOCIO</p>
+                     
+                     <div className="flex flex-wrap gap-1.5 pb-1">
+                       <span className="bg-slate-100 text-slate-650 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border border-slate-200/50">Sector Tech</span>
+                       <span className="bg-slate-100 text-slate-650 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border border-slate-200/50">Renovación</span>
+                       <span className="bg-blue-55 text-blue-600 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border border-blue-100">Lead Score: 92</span>
+                     </div>
+                     
+                     {profile ? (
+                       <div className="space-y-2.5 text-xs text-slate-600 font-medium">
+                         <div className="flex justify-between items-center">
+                           <span>Total Pedidos:</span>
+                           <span className="font-bold text-slate-800 bg-slate-150 px-2 py-0.5 rounded">{profile.stats.total_orders}</span>
+                         </div>
+                         <div className="flex justify-between items-center">
+                           <span>Inversión Total:</span>
+                           <span className="font-extrabold text-emerald-600">S/ {Number(profile.stats.total_spent).toFixed(2)}</span>
+                         </div>
+                         {Number(profile.stats.total_pending) > 0 && (
+                           <div className="flex justify-between items-center text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-100 mt-2 font-bold">
+                             <span>Saldo Pendiente:</span>
+                             <span>S/ {Number(profile.stats.total_pending).toFixed(2)}</span>
+                           </div>
+                         )}
+                       </div>
+                     ) : (
+                       <p className="text-slate-400 text-[11px] font-medium">Sin historial comercial registrado.</p>
+                     )}
+                  </div>
+
+                  {/* Historial Reciente Timeline */}
+                  <div className="bg-white border border-slate-200/60 p-4 rounded-2xl shadow-xs">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-4">HISTORIAL RECIENTE</p>
+                    <div className="relative border-l border-slate-150 pl-4 ml-2 space-y-5">
+                      <div className="relative">
+                        <span className="absolute -left-[21px] top-0.5 w-3.5 h-3.5 rounded-full bg-blue-600 border-4 border-white shadow-sm" />
+                        <p className="text-xs font-bold text-slate-700 font-syst">Cita Confirmada CRM</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Cita de soporte configurada por agente de IA.</p>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute -left-[21px] top-0.5 w-3.5 h-3.5 rounded-full bg-slate-300 border-4 border-white shadow-sm" />
+                        <p className="text-xs font-bold text-slate-700 font-syst">Conversación Iniciada</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Cliente se vinculó a través de WhatsApp Business API.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Notes Area */}
+                  <div className="bg-white border border-slate-200/60 p-4 rounded-2xl shadow-xs">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2.5">NOTAS RÁPIDAS</p>
+                    <textarea
+                      value={quickNotes}
+                      onChange={(e) => handleSaveQuickNotes(e.target.value)}
+                      placeholder="Agrega comentarios persistentes sobre este prospecto..."
+                      className="w-full text-xs border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50/50 text-slate-750 font-medium"
+                      rows={3}
+                    />
+                  </div>
+                </>
+             )}
           </div>
         </div>
       )}
 
       {/* MODAL NUEVO CHAT */}
       {showNewChatModal && (
-        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center backdrop-blur-md">
-          <div className="bg-[#12141c] border border-white/10 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="h-[60px] px-6 flex items-center justify-between bg-indigo-600 text-white">
-              <span className="text-sm font-bold uppercase tracking-wider">Nuevo Chat Directo</span>
+        <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="h-[60px] px-6 flex items-center justify-between bg-blue-650 text-white">
+              <span className="text-sm font-bold uppercase tracking-wider font-syst">Nuevo Chat Directo</span>
               <button onClick={() => setShowNewChatModal(false)}><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 bg-[#090a0f]">
-              <p className="text-xs text-slate-500 mb-4">Ingresa el número con prefijo de país. Ej. 51924678473 (Perú)</p>
+            <div className="p-6 bg-slate-50">
+              <p className="text-xs text-slate-550 mb-4">Ingresa el número con prefijo de país. Ej. 51924678473 (Perú)</p>
               <form onSubmit={handleStartNewChat}>
                 <input 
                   type="text" 
                   autoFocus
                   placeholder="Ej: 51924678473"
-                  className="w-full bg-[#12141c] border border-white/10 rounded-xl px-4 py-3 text-slate-200 placeholder:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent mb-5"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-5 text-sm"
                   value={newChatPhone}
                   onChange={(e) => setNewChatPhone(e.target.value)}
                 />
-                <div className="flex justify-end gap-3">
-                  <button type="button" onClick={() => setShowNewChatModal(false)} className="px-4 py-2 text-xs text-slate-500 hover:bg-white/5 rounded-xl font-bold">Cancelar</button>
-                  <button type="submit" className="px-5 py-2 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-md shadow-indigo-600/25">Iniciar Conversación</button>
+                <div className="flex justify-end gap-2.5">
+                  <button type="button" onClick={() => setShowNewChatModal(false)} className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-200 rounded-xl font-bold">Cancelar</button>
+                  <button type="submit" className="px-5 py-2 text-xs bg-blue-600 hover:bg-blue-750 text-white rounded-xl font-bold shadow-sm">Iniciar Conversación</button>
                 </div>
               </form>
             </div>
@@ -1352,40 +1632,40 @@ export default function MessagesPage() {
 
       {/* MODAL VINCULACIÓN QR / PAIRING */}
       {showQrModal && (
-        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center backdrop-blur-md">
-          <div className="bg-[#12141c] border border-white/10 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="h-[60px] px-6 flex items-center justify-between bg-indigo-600 text-white">
-              <span className="text-sm font-bold uppercase tracking-wider">Vincular Dispositivo</span>
+        <div className="fixed inset-0 bg-slate-900/70 z-[100] flex items-center justify-center backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 animate-out duration-150">
+            <div className="h-[60px] px-6 flex items-center justify-between bg-blue-650 text-white">
+              <span className="text-sm font-bold uppercase tracking-wider font-syst">Vincular Dispositivo</span>
               <button onClick={() => { setShowQrModal(false); setQrCode(null); setPairingCode(null); }}><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 bg-[#090a0f] flex flex-col items-center text-center">
+            <div className="p-6 bg-slate-50 flex flex-col items-center text-center">
               
               {!qrCode && !pairingCode ? (
                 <div className="py-8 flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-xs text-slate-500">Generando puente seguro...</p>
+                  <div className="w-8 h-8 border-2 border-blue-650 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs text-slate-500 font-medium">Generando puente seguro...</p>
                 </div>
               ) : (
                 <>
-                  <p className="text-xs text-slate-300 mb-6">
+                  <p className="text-xs text-slate-600 mb-6 font-medium leading-relaxed">
                     Abre WhatsApp en tu teléfono, ingresa a Dispositivos vinculados y escanea el código QR a continuación:
                   </p>
                   
                   {qrCode && (
-                    <div className="bg-white p-4 rounded-2xl shadow-2xl border border-white/10 mb-6">
+                    <div className="bg-white p-4 rounded-2xl shadow-md border border-slate-100 mb-6">
                       <img src={qrCode} alt="WhatsApp Web QR Code" className="w-[200px] h-[200px]" />
                     </div>
                   )}
 
                   {pairingCode && (
-                    <div className="bg-white/5 border border-white/10 px-6 py-3 rounded-xl mb-6">
-                      <p className="text-[10px] text-indigo-400 font-bold mb-1 uppercase tracking-wider">CÓDIGO DE VINCULACIÓN</p>
-                      <p className="text-3xl font-black text-slate-100 tracking-widest">{pairingCode}</p>
+                    <div className="bg-white border border-slate-200 px-6 py-3 rounded-xl mb-6 shadow-xs">
+                      <p className="text-[9px] text-blue-600 font-black mb-1 uppercase tracking-wider font-mono">CÓDIGO DE VINCULACIÓN</p>
+                      <p className="text-3xl font-black text-slate-800 tracking-widest">{pairingCode}</p>
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-4 py-1 text-[11px] font-black uppercase tracking-wider">
-                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-ping" /> Sincronización en curso
+                  <div className="flex items-center gap-2 text-blue-650 bg-blue-50 border border-blue-100 rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-wider font-mono">
+                    <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-ping" /> Sincronización en curso
                   </div>
                 </>
               )}

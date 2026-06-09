@@ -35,7 +35,7 @@ export class GoogleOauthService {
     
     // Redirect URI must match what is configured in Google Cloud Console
     const redirectUri = this.config.get<string>('GOOGLE_OAUTH_REDIRECT_URI') || 
-      `${this.config.get<string>('BACKEND_PUBLIC_URL') || 'http://localhost:3003'}/api/v1/oauth/google/callback`;
+      `${this.config.get<string>('BACKEND_PUBLIC_URL') || 'http://localhost:3001'}/api/v1/oauth/google/callback`;
 
     if (!clientId || !clientSecret) {
       this.logger.error('GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not configured in environment');

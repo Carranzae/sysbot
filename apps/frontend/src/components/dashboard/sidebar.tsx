@@ -30,10 +30,12 @@ import {
   BarChart3,
   PieChart,
   DollarSign,
-  Phone
+  Phone,
+  Inbox
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBusinessStore } from '@/store/business'
+import { Button } from '@/components/ui/button'
 
 type NavItem = {
   title: string
@@ -43,80 +45,14 @@ type NavItem = {
   isSubmenu?: boolean
 }
 
-const baseNav: NavItem[] = [
-  { title: 'Resumen', href: '/dashboard', icon: LayoutDashboard },
+const navItems: NavItem[] = [
+  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { title: 'Omnicanal', href: '/omnichannel', icon: Inbox },
   { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-  { title: 'Bot Builder', href: '/bot-builder', icon: Sparkles },
-  { title: 'Canales', href: '/channels', icon: Radio },
-  { title: 'Conocimiento', href: '/files', icon: FileText },
-  { title: 'CRM', href: '/leads', icon: Users },
-  { title: 'Call Center', href: '/crm/call-center', icon: Phone },
+  { title: 'IA Studio', href: '/ai-studio', icon: Sparkles },
+  { title: 'CRM', href: '/crm', icon: Users },
   { title: 'Swarm Control', href: '/swarm-control', icon: Activity },
-  { title: 'Configuración', href: '/settings', icon: Settings },
-  { title: 'Suscripción', href: '/dashboard/subscription', icon: CreditCard },
 ]
-
-const industryNav: Record<string, NavItem[]> = {
-  RESTAURANT: [
-    { title: 'Pedidos', href: '/orders', icon: Utensils },
-    { title: 'Leads', href: '/leads', icon: Users },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  RETAIL: [
-    { title: 'Pedidos', href: '/orders', icon: ShoppingBag },
-    { title: 'Leads', href: '/leads', icon: Users },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  SERVICES: [
-    { title: 'Citas', href: '/appointments', icon: CalendarCheck },
-    { title: 'Leads', href: '/leads', icon: Users },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  CLINIC: [
-    { title: 'Citas', href: '/appointments', icon: Stethoscope },
-    { title: 'Control Clínico', href: '/clinic', icon: Activity },
-    { title: 'Notificaciones', href: '/notifications', icon: Activity },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Send },
-  ],
-  ACADEMY: [
-    { title: 'Citas', href: '/appointments', icon: GraduationCap },
-    { title: 'Leads', href: '/leads', icon: Users },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  REAL_ESTATE: [
-    { title: 'Leads', href: '/leads', icon: HomeIcon },
-    { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  AUTOMOTIVE: [
-    { title: 'Pedidos', href: '/orders', icon: ShoppingBag },
-    { title: 'Citas', href: '/appointments', icon: CalendarCheck },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  TECHNOLOGY: [
-    { title: 'Pedidos', href: '/orders', icon: Wrench },
-    { title: 'Leads', href: '/leads', icon: Users },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-  OTHER: [
-    { title: 'Citas', href: '/appointments', icon: CalendarCheck },
-    { title: 'Leads', href: '/leads', icon: Users },
-    { title: 'Recomendaciones', href: '/recommendations', icon: Sparkles },
-  ],
-}
-
-function mergeNav(base: NavItem[], extra: NavItem[]) {
-  const map = new Map<string, NavItem>()
-  base.forEach((item) => {
-    if (item.href) map.set(item.href, item)
-  })
-  extra.forEach((item) => {
-    if (!map.has(item.href || '')) {
-      map.set(item.href || '', item)
-    }
-  })
-  return Array.from(map.values())
-}
 
 function SimpleNavItem({ item, pathname }: { item: NavItem; pathname: string }) {
   const Icon = item.icon
@@ -147,16 +83,14 @@ export function Sidebar() {
   const pathname = usePathname()
   const selectedBusiness = useBusinessStore((state) => state.selectedBusiness)
 
-  const navItems = mergeNav(baseNav, selectedBusiness ? industryNav[selectedBusiness.industryType] ?? [] : [])
-
   return (
     <aside className="hidden md:flex md:w-64 lg:w-72 xl:w-80 h-screen sticky top-0 flex-col bg-luxury-glass border-r border-slate-200/50 overflow-hidden z-50">
       <div className="px-6 pt-8 pb-6 border-b border-slate-200/50">
         <div className="flex items-center gap-3">
           <img src="/sybot_logo.png" alt="Sybot Logo" className="h-10 w-10 object-contain rounded-xl shadow-sm bg-white p-1 border border-slate-100" />
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight text-slate-800 font-syst">Sybot</h1>
-            <p className="text-[9px] font-black tracking-widest text-primary uppercase font-syst">Enterprise AI</p>
+            <h1 className="text-xl font-black tracking-tight text-blue-950 font-syst">Sybot AI</h1>
+            <p className="text-[9px] font-black tracking-widest text-slate-400 uppercase font-syst">ENTERPRISE HUB</p>
           </div>
         </div>
       </div>
@@ -169,44 +103,37 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="px-4 py-6 border-t border-slate-200/50 bg-slate-50/50 backdrop-blur-md">
-        {selectedBusiness ? (
-          <div className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-300">
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Negocio Activo</p>
-            <p className="text-base font-extrabold text-slate-800 truncate font-syst">{selectedBusiness.name}</p>
-            <p className="text-xs font-bold text-primary mt-0.5">
-              {selectedBusiness.industryType.replace('_', ' ')}
-            </p>
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {selectedBusiness.categories.slice(0, 3).map((category) => (
-                <span
-                  key={category}
-                  className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 uppercase tracking-wide font-syst"
-                >
-                  {category}
-                </span>
-              ))}
-              {selectedBusiness.categories.length > 3 && (
-                <span className="text-[10px] text-slate-400 font-bold">+{selectedBusiness.categories.length - 3}</span>
-              )}
-            </div>
-            <Link
-              href="/businesses"
-              className="mt-4 inline-flex items-center text-xs font-bold text-primary hover:underline transition-colors group"
-            >
-              <span>Cambiar o configurar</span>
-              <span className="ml-1 transition-transform group-hover:translate-x-1">&rarr;</span>
-            </Link>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-200/60 bg-white p-4 text-xs font-bold text-slate-500 shadow-sm">
-            No has configurado ningún negocio.{' '}
-            <Link href="/businesses" className="text-primary hover:underline">
-              Configura el primero
-            </Link>
-            .
-          </div>
-        )}
+      <div className="px-4 py-5 border-t border-slate-200/50 bg-slate-50/50 backdrop-blur-md space-y-4">
+        {/* Navigation items for integrations and billing */}
+        <div className="space-y-1">
+          <Link
+            href="/settings"
+            className={cn(
+              'flex items-center gap-3 rounded-xl px-3.5 py-2 text-sm font-semibold transition-all duration-300 text-slate-600 hover:text-primary hover:bg-slate-100/50',
+              pathname === '/settings' && 'text-primary bg-primary/10 border-primary/20'
+            )}
+          >
+            <Settings className="h-4 w-4 text-slate-500" />
+            <span className="font-syst">Integrations</span>
+          </Link>
+
+          <Link
+            href="/settings?tab=billing"
+            className="flex items-center gap-3 rounded-xl px-3.5 py-2 text-sm font-semibold transition-all duration-300 text-slate-600 hover:text-primary hover:bg-slate-100/50"
+          >
+            <CreditCard className="h-4 w-4 text-slate-500" />
+            <span className="font-syst">Billing</span>
+          </Link>
+        </div>
+
+        {/* Upgrade Plan Button */}
+        <div className="pt-1">
+          <Link href="/settings?tab=billing">
+            <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl py-3 text-xs tracking-wide shadow-sm hover:shadow-md transition-all duration-300 font-syst h-11">
+              Upgrade Plan
+            </Button>
+          </Link>
+        </div>
       </div>
     </aside>
   )

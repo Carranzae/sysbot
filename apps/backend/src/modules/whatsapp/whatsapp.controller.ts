@@ -54,6 +54,18 @@ export class WhatsappController {
     };
   }
 
+  @Post('accounts')
+  @UseGuards(JwtAuthGuard)
+  async createAccount(@Req() req: any, @Body() dto: CreateWhatsappAccountDto & { businessId?: string }) {
+    const businessId = dto.businessId || req.user?.businessId;
+    if (!businessId) {
+      throw new BadRequestException('Business ID is required');
+    }
+
+    await this.businessService.ensureBusinessOwnership(req.user.userId, businessId);
+    return this.whatsappService.createWhatsAppAccount(businessId, dto);
+  }
+
   @Post('accounts/:id/sync')
   @UseGuards(JwtAuthGuard)
   async manualSync(@Req() req: any, @Param('id') id: string) {
@@ -428,6 +440,18 @@ export class WhatsappController {
         await this.whatsappService.sendMessage(phoneNumberId, from, 'Evidencia enviada al especialista para revisión.');
         await this.whatsappService.markAsRead(phoneNumberId, message.id);
         return; // Don't send AI response for confirmation
+      }
+
+      // Check if AI is paused for this contact
+      const contact = await this.prisma.contact.findFirst({
+        where: { businessId, phone: from },
+        select: { isAiPaused: true },
+      });
+
+      if (contact?.isAiPaused) {
+        console.log(`[WhatsApp API] AI is paused for contact ${from}. AI response skipped.`);
+        await this.whatsappService.markAsRead(phoneNumberId, message.id);
+        return;
       }
 
       // Handle media

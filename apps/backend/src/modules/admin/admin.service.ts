@@ -848,7 +848,7 @@ export class AdminService {
     async toggleIndustryFeature(industryType: string, feature: string, enabled: boolean) {
         const businesses = await this.prisma.business.findMany({
             where: { 
-                industryType,
+                industryType: industryType as any,
                 isActive: true 
             },
             include: { botConfig: true }
@@ -881,7 +881,7 @@ export class AdminService {
     async getIndustryBusinesses(industryType: string) {
         return this.prisma.business.findMany({
             where: { 
-                industryType,
+                industryType: industryType as any,
                 isActive: true 
             },
             include: {
@@ -1061,9 +1061,12 @@ export class AdminService {
                 { email: { contains: filters.search, mode: 'insensitive' } },
             ];
         }
+        if (Object.keys(businessWhere).length > 0) {
+            where.business = businessWhere;
+        }
 
         const [subscriptions, total] = await Promise.all([
-            this.prisma.businessSubscriptions.findMany({
+            this.prisma.businessSubscription.findMany({
                 where,
                 include: {
                     business: {
@@ -1083,21 +1086,18 @@ export class AdminService {
                                 }
                             }
                         },
-                        where: Object.keys(businessWhere).length > 0 ? businessWhere : undefined,
                     }
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
                 take: limit,
             }),
-            this.prisma.businessSubscriptions.count({ where }),
+            this.prisma.businessSubscription.count({ where }),
         ]);
 
         // Filtrar las que no tienen business (por el filtro de industry)
-        const filteredSubscriptions = subscriptions.filter(s => s.business);
-
         return {
-            data: filteredSubscriptions,
+            data: subscriptions,
             pagination: {
                 page,
                 limit,
@@ -1108,7 +1108,7 @@ export class AdminService {
     }
 
     async getBusinessSubscriptionDetails(businessId: string) {
-        const subscription = await this.prisma.businessSubscriptions.findFirst({
+        const subscription = await this.prisma.businessSubscription.findFirst({
             where: { businessId },
             orderBy: { createdAt: 'desc' },
             include: {
@@ -1130,7 +1130,6 @@ export class AdminService {
                         },
                         _count: {
                             select: {
-                                users: true,
                                 appointments: true,
                                 orders: true,
                                 conversations: true,
@@ -1164,7 +1163,7 @@ export class AdminService {
         const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
         // Cancelar suscripción activa actual
-        await this.prisma.businessSubscriptions.updateMany({
+        await this.prisma.businessSubscription.updateMany({
             where: {
                 businessId,
                 status: 'ACTIVE',
@@ -1176,7 +1175,7 @@ export class AdminService {
         });
 
         // Crear nueva suscripción
-        const subscription = await this.prisma.businessSubscriptions.create({
+        const subscription = await this.prisma.businessSubscription.create({
             data: {
                 businessId,
                 planId: `plan-${data.planType.toLowerCase()}`,
@@ -1214,7 +1213,7 @@ export class AdminService {
     }
 
     async getPlanStats() {
-        const stats = await this.prisma.businessSubscriptions.groupBy({
+        const stats = await this.prisma.businessSubscription.groupBy({
             by: ['planType', 'status'],
             _count: {
                 id: true,
@@ -1225,7 +1224,7 @@ export class AdminService {
         });
 
         // Calcular MRR (Monthly Recurring Revenue)
-        const mrr = await this.prisma.businessSubscriptions.aggregate({
+        const mrr = await this.prisma.businessSubscription.aggregate({
             where: {
                 status: 'ACTIVE',
                 interval: 'MONTHLY',
@@ -1235,7 +1234,7 @@ export class AdminService {
             },
         });
 
-        const arr = await this.prisma.businessSubscriptions.aggregate({
+        const arr = await this.prisma.businessSubscription.aggregate({
             where: {
                 status: 'ACTIVE',
                 interval: 'YEARLY',
@@ -1257,9 +1256,9 @@ export class AdminService {
         return {
             byPlanAndStatus: stats,
             financials: {
-                mrr: mrr._sum.price || 0,
-                arr: (arr._sum.price || 0) * 12,
-                estimatedAnnual: (mrr._sum.price || 0) * 12 + (arr._sum.price || 0),
+                mrr: Number(mrr._sum.price || 0),
+                arr: Number(arr._sum.price || 0) * 12,
+                estimatedAnnual: Number(mrr._sum.price || 0) * 12 + Number(arr._sum.price || 0),
             },
             byIndustry,
         };
@@ -1270,7 +1269,7 @@ export class AdminService {
         reason: string,
         adminId: string,
     ) {
-        const subscription = await this.prisma.businessSubscriptions.updateMany({
+        const subscription = await this.prisma.businessSubscription.updateMany({
             where: {
                 businessId,
                 status: 'ACTIVE',
@@ -1298,7 +1297,7 @@ export class AdminService {
         additionalDays: number,
         adminId: string,
     ) {
-        const subscription = await this.prisma.businessSubscriptions.findFirst({
+        const subscription = await this.prisma.businessSubscription.findFirst({
             where: { businessId, status: 'ACTIVE' },
             orderBy: { createdAt: 'desc' },
         });
@@ -1310,7 +1309,7 @@ export class AdminService {
         const currentTrialEnd = subscription.trialEndsAt || new Date();
         const newTrialEnd = new Date(currentTrialEnd.getTime() + additionalDays * 24 * 60 * 60 * 1000);
 
-        const updated = await this.prisma.businessSubscriptions.update({
+        const updated = await this.prisma.businessSubscription.update({
             where: { id: subscription.id },
             data: {
                 trialEndsAt: newTrialEnd,
@@ -1334,7 +1333,7 @@ export class AdminService {
     }
 
     async getPlanComparison(businessId: string) {
-        const currentSubscription = await this.prisma.businessSubscriptions.findFirst({
+        const currentSubscription = await this.prisma.businessSubscription.findFirst({
             where: { businessId },
             orderBy: { createdAt: 'desc' },
         });
@@ -1345,7 +1344,6 @@ export class AdminService {
                 industryType: true,
                 _count: {
                     select: {
-                        users: true,
                         appointments: true,
                         orders: true,
                     }
@@ -1429,10 +1427,10 @@ export class AdminService {
         try {
             await this.prisma.auditLog.create({
                 data: {
-                    userId: data.userId,
+                    performedBy: data.userId,
                     action: data.action,
-                    entityType: data.entityType,
-                    entityId: data.entityId,
+                    targetType: data.entityType,
+                    targetId: data.entityId,
                     details: data.details,
                     createdAt: new Date(),
                 }

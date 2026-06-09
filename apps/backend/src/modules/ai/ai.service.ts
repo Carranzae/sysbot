@@ -1147,7 +1147,10 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
                   lowerMessage.includes(keyword.toLowerCase())
                 );
 
-                if ((askedForProducts || askedForMedication) && business.industryType === 'PHARMACY') {
+                if (
+                  (askedForProducts || askedForMedication) &&
+                  ['CLINIC', 'RETAIL'].includes(String(business.industryType))
+                ) {
                   this.logger.log(`[RAG] 💊 Cliente preguntó por productos/medicamentos - ANALIZANDO ARCHIVOS PDF`);
 
                   try {
@@ -1509,9 +1512,8 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
     if (shouldEscalate) {
       this.logger.warn(`[Escalation] 🚨 Detectada necesidad de intervención para ${customerPhone}. Sentimiento: ${sentiment}, Intención: ${intent}`);
       // Notificar al dueño del negocio
-      await this.notificationsService.create({
+      await this.notificationsService.create(businessId, {
         userId: business.ownerId,
-        businessId,
         type: 'SYSTEM',
         title: '⚠️ Intervención Humana Requerida',
         message: `El cliente ${customerPhone} parece estar ${sentiment.toLowerCase()}. Intención: ${intent}. Revisa el chat inmediatamente.`,
@@ -1546,11 +1548,14 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
       try {
         const order = await this.prisma.order.findFirst({
           where: { businessId, orderNumber },
-          include: { items: true }
         });
 
         if (order) {
-          const detail = `📦 Detalle del Pedido #${order.orderNumber}:\n- Estado: ${order.status}\n- Total: $${order.totalAmount}\n- Fecha: ${order.createdAt.toLocaleDateString()}\n- Items: ${order.items.map(i => i.name).join(', ')}`;
+          const orderItems = Array.isArray(order.items) ? order.items : [];
+          const itemNames = orderItems
+            .map((item: any) => item?.name || item?.title || item?.sku || String(item))
+            .join(', ');
+          const detail = `📦 Detalle del Pedido #${order.orderNumber}:\n- Estado: ${order.status}\n- Total: $${order.totalAmount}\n- Fecha: ${order.createdAt.toLocaleDateString()}\n- Items: ${itemNames || 'Sin detalle'}`;
           processedResponse = processedResponse.replace(match[0], detail);
         } else {
           processedResponse = processedResponse.replace(match[0], `❌ No encontré el pedido #${orderNumber}. Por favor verifica el número.`);

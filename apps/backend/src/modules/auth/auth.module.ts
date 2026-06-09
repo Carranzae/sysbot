@@ -8,12 +8,13 @@ import { AuthResolver } from './auth.resolver';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { UsersModule } from '../users/users.module';
-import { PrismaService } from '../database/prisma.service';
+import { DatabaseModule } from '../database/database.module';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
+    DatabaseModule,
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET'),
@@ -24,7 +25,7 @@ import { PrismaService } from '../database/prisma.service';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, AuthResolver, JwtStrategy, LocalStrategy, PrismaService],
+  providers: [AuthService, AuthResolver, JwtStrategy, LocalStrategy],
   controllers: [AuthController],
   exports: [AuthService],
 })

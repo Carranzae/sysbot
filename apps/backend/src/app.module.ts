@@ -51,12 +51,13 @@ import { SelfStudyModule } from './modules/self-study/self-study.module';
 import { PaymentRevisorModule } from './modules/payment-revisor/payment-revisor.module';
 import { ClinicModule } from './modules/clinic/clinic.module';
 import { SubscriptionModule } from './modules/subscription/subscription.module';
+import { OmnichannelModule } from './modules/omnichannel/omnichannel.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      ignoreEnvFile: true,
     }),
     ScheduleModule.forRoot(),
     BullModule.forRootAsync({
@@ -126,6 +127,7 @@ import { SubscriptionModule } from './modules/subscription/subscription.module';
     PaymentRevisorModule,
     SubscriptionModule,
     ClinicModule,
+    OmnichannelModule,
   ],
   providers: [
     {

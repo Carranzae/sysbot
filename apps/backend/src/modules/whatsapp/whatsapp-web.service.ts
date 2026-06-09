@@ -562,6 +562,12 @@ export class WhatsappWebService implements OnModuleInit {
       console.error('Error storing QR code in database:', error);
       // El QR sigue disponible en memoria, así que no es crítico
     }
+    // Emitir QR por websockets
+    try {
+      this.websocketGateway.emitLivechatQr(businessId, code);
+    } catch (err) {
+      console.error('Error emitting livechat QR code:', err);
+    }
   }
 
   private async updateStatus(businessId: string, status: string) {
@@ -575,6 +581,12 @@ export class WhatsappWebService implements OnModuleInit {
     } catch (error) {
       console.error('Error updating status in database:', error);
       // El estado se puede mantener solo en memoria si falla la BD
+    }
+    // Emitir estado por websockets
+    try {
+      this.websocketGateway.emitLivechatStatus(businessId, status, this.pairingCodes.get(businessId));
+    } catch (err) {
+      console.error('Error emitting livechat status:', err);
     }
   }
 
@@ -1729,6 +1741,15 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
             }
           } else {
             // No es clínica o el usuario proporcionó una descripción -> Procesar con IA
+            const contact = await this.prisma.contact.findFirst({
+              where: { businessId, phone: from },
+              select: { isAiPaused: true },
+            });
+            if (contact?.isAiPaused) {
+              console.log(`[WhatsApp Web] AI is paused for contact ${from}. Skipping media AI processing.`);
+              return;
+            }
+
             console.log(`[WhatsApp Web] Procesando archivo con IA directamente para negocio ${businessId}`);
             
             const fileAttachment = {
@@ -1765,6 +1786,17 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         await this.sendMessage(businessId, fromJid, 'Recibí tu archivo multimedia, pero hubo un error al procesarlo. Por favor, intenta nuevamente.');
       }
       return; // Don't send AI response for media
+    }
+
+    // Verificar si la IA está pausada para este contacto
+    const contact = await this.prisma.contact.findFirst({
+      where: { businessId, phone: from },
+      select: { isAiPaused: true },
+    });
+
+    if (contact?.isAiPaused) {
+      console.log(`[WhatsApp Web] AI is paused for contact ${from}. AI response skipped.`);
+      return;
     }
 
     // Verificar que autoReply esté habilitado y obtener welcomeMessage

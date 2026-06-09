@@ -842,6 +842,9 @@ export class BusinessService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
 
     const [
       totalMessages,
@@ -851,6 +854,8 @@ export class BusinessService {
       leadsGenerated,
       averageResponseTime,
       activeConversations,
+      monthlyActiveContacts,
+      monthlyActiveMessageContacts,
     ] = await Promise.all([
       this.prisma.message.count({
         where: { businessId },
@@ -890,13 +895,31 @@ export class BusinessService {
           createdAt: { gte: last24h },
         },
       }).then(groups => groups.length),
+      this.prisma.contact.count({
+        where: {
+          businessId,
+          OR: [
+            { lastIncomingAt: { gte: monthStart } },
+            { lastOutgoingAt: { gte: monthStart } },
+          ],
+        },
+      }),
+      this.prisma.message.groupBy({
+        by: ['from'],
+        where: {
+          businessId,
+          createdAt: { gte: monthStart },
+        },
+      }).then(groups => groups.length),
     ]);
+    const monthlyActiveContactTotal = Math.max(monthlyActiveContacts, monthlyActiveMessageContacts);
 
     return {
       totalMessages,
       messagesHandledByAI,
       averageResponseTime: averageResponseTime._avg.processingTime || 0,
       activeConversations,
+      monthlyActiveContacts: monthlyActiveContactTotal,
       appointmentsToday,
       ordersToday,
       leadsGenerated,

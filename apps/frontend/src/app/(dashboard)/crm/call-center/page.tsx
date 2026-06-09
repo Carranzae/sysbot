@@ -263,7 +263,7 @@ export default function CallCenterPage() {
                     </div>
                   </div>
                   {selectedCall.surveyFeedback && (
-                    <p className="text-xs text-slate-300 italic">"{selectedCall.surveyFeedback}"</p>
+                    <p className="text-xs text-slate-300 italic">&quot;{selectedCall.surveyFeedback}&quot;</p>
                   )}
                 </div>
               )}

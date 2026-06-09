@@ -37,7 +37,6 @@ export class PaymentAutomationService {
         where: { id: dto.businessId },
         select: {
           paymentGateway: true,
-          paymentConfig: true,
           name: true
         }
       });

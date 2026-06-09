@@ -162,7 +162,7 @@ export class CampaignsProcessor {
 
     if (isWebEnabled) {
       // Modo WhaSender (Web Automation)
-      await this.whatsappWebService.sendText(campaign.businessId, recipient.contact.phone, campaign.message);
+      await this.whatsappWebService.sendMessage(campaign.businessId, recipient.contact.phone, campaign.message);
     } else if (isApiEnabled) {
       // Modo API Oficial
       const account = campaign.business.whatsappAccounts?.[0];

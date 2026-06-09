@@ -81,7 +81,7 @@ export class ClinicController {
   /**
    * Configuración de contratos de comisión de médicos
    */
-  @Post('clinic/contracts')
+  @Post(['contracts', 'clinic/contracts'])
   @UseGuards(JwtAuthGuard)
   async configureContract(
     @Query('businessId') businessId: string,
@@ -90,7 +90,7 @@ export class ClinicController {
     return this.clinicService.configureDoctorContract(businessId, body);
   }
 
-  @Get('clinic/contracts')
+  @Get(['contracts', 'clinic/contracts'])
   @UseGuards(JwtAuthGuard)
   async getContracts(
     @Query('businessId') businessId: string
@@ -101,7 +101,7 @@ export class ClinicController {
   /**
    * Creación y actualización de stock de insumos médicos
    */
-  @Post('clinic/inventory')
+  @Post(['inventory', 'clinic/inventory'])
   @UseGuards(JwtAuthGuard)
   async createInventory(
     @Query('businessId') businessId: string,
@@ -110,7 +110,7 @@ export class ClinicController {
     return this.clinicService.createInventoryItem(businessId, body);
   }
 
-  @Get('clinic/inventory')
+  @Get(['inventory', 'clinic/inventory'])
   @UseGuards(JwtAuthGuard)
   async getInventory(
     @Query('businessId') businessId: string
@@ -121,7 +121,7 @@ export class ClinicController {
   /**
    * Configuración de insumos necesarios para procedimientos médicos
    */
-  @Post('clinic/supplies')
+  @Post(['supplies', 'clinic/supplies'])
   @UseGuards(JwtAuthGuard)
   async configureSupplies(
     @Query('businessId') businessId: string,
@@ -130,7 +130,7 @@ export class ClinicController {
     return this.clinicService.configureProcedureSupplies(businessId, body);
   }
 
-  @Get('clinic/supplies')
+  @Get(['supplies', 'clinic/supplies'])
   @UseGuards(JwtAuthGuard)
   async getSupplies(
     @Query('businessId') businessId: string
@@ -141,7 +141,7 @@ export class ClinicController {
   /**
    * Listado de liquidaciones y balances de billeteras de médicos
    */
-  @Get('clinic/doctors/wallet')
+  @Get(['doctors/wallet', 'clinic/doctors/wallet'])
   @UseGuards(JwtAuthGuard)
   async getDoctorPayouts(
     @Query('businessId') businessId: string
@@ -152,7 +152,7 @@ export class ClinicController {
   /**
    * Notificación manual de resultados de laboratorio
    */
-  @Post('clinic/notify-lab')
+  @Post(['notify-lab', 'clinic/notify-lab'])
   @UseGuards(JwtAuthGuard)
   async simulateLabNotify(
     @Query('businessId') businessId: string,

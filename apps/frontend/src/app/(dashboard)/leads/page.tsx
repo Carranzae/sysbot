@@ -114,7 +114,7 @@ export default function LeadsKanbanPage() {
     // Optimistic UI update
     setLeads(prev => prev.map(lead => lead.id === leadId ? { ...lead, status: newStatus } : lead))
     if (selectedLead && selectedLead.id === leadId) {
-      setSelectedLead(prev => prev ? { ...prev, status: newStatus } : null)
+      setSelectedLead((prev: any) => prev ? { ...prev, status: newStatus } : null)
     }
 
     try {
@@ -127,7 +127,7 @@ export default function LeadsKanbanPage() {
       // Revert on error
       setLeads(prev => prev.map(lead => lead.id === leadId ? { ...lead, status: source.droppableId } : lead))
       if (selectedLead && selectedLead.id === leadId) {
-        setSelectedLead(prev => prev ? { ...prev, status: source.droppableId } : null)
+        setSelectedLead((prev: any) => prev ? { ...prev, status: source.droppableId } : null)
       }
       toast({
         title: 'Error',
@@ -239,7 +239,7 @@ export default function LeadsKanbanPage() {
       
       // Update local Kanban list
       setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, ...updatedData } : l))
-      setSelectedLead(prev => prev ? { ...prev, ...updatedData } : null)
+      setSelectedLead((prev: any) => prev ? { ...prev, ...updatedData } : null)
       
       toast({
         title: 'Lead actualizado',

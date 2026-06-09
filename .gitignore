@@ -81,3 +81,18 @@ apps/backend/*.md
 .wwebjs_auth/
 .wwebjs_cache/
 baileys_auth_*/
+whatsapp_auth_sessions/
+apps/backend/whatsapp_auth_sessions/
+
+# Package build artifacts accidentally emitted in src folders
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
+# Root diagnostic scripts kept local only
+test-*.js
+check-*.sql
+fix-*.sql
+rename-*.sql
+update-*.sql

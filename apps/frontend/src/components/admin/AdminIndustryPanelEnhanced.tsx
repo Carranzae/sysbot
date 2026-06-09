@@ -86,6 +86,11 @@ interface AdminIndustryPanelEnhancedProps {
 
 export function AdminIndustryPanelEnhanced({ onRefresh }: AdminIndustryPanelEnhancedProps) {
   const { toast } = useToast();
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+  });
   const [loading, setLoading] = useState(false);
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -132,7 +137,9 @@ export function AdminIndustryPanelEnhanced({ onRefresh }: AdminIndustryPanelEnha
     try {
       setLoading(true);
       
-      const response = await fetch('/api/admin/industries');
+      const response = await fetch(`${apiBase}/admin/industries`, {
+        headers: authHeaders(),
+      });
       if (!response.ok) throw new Error('Error al cargar industrias');
       
       const data = await response.json();
@@ -155,13 +162,23 @@ export function AdminIndustryPanelEnhanced({ onRefresh }: AdminIndustryPanelEnha
     try {
       setUpdating(`${industryType}-${feature}`);
       
-      const endpoint = `/api/admin/industries/${industryType}/${feature}`;
+      const routeByFeature: Record<string, string> = {
+        audioEnabled: 'audio',
+        callEnabled: 'calls',
+        autoReply: 'autoreply',
+        whatsappWebEnabled: 'whatsapp',
+      };
+      const bodyKeyByFeature: Record<string, string> = {
+        audioEnabled: 'audioEnabled',
+        callEnabled: 'callEnabled',
+        autoReply: 'autoReply',
+        whatsappWebEnabled: 'whatsappEnabled',
+      };
+      const endpoint = `${apiBase}/admin/industries/${industryType}/${routeByFeature[feature] || feature}`;
       const response = await fetch(endpoint, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ [feature]: enabled }),
+        headers: authHeaders(),
+        body: JSON.stringify({ [bodyKeyByFeature[feature] || feature]: enabled }),
       });
 
       if (!response.ok) {
@@ -217,11 +234,9 @@ export function AdminIndustryPanelEnhanced({ onRefresh }: AdminIndustryPanelEnha
     try {
       setUpdating(`subscription-${businessId}`);
       
-      const response = await fetch(`/api/admin/subscriptions/${businessId}/upgrade`, {
+      const response = await fetch(`${apiBase}/admin/subscriptions/${businessId}/upgrade`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ planType }),
       });
 
@@ -250,11 +265,9 @@ export function AdminIndustryPanelEnhanced({ onRefresh }: AdminIndustryPanelEnha
   // Función para generar audio de prueba
   const generateTestAudio = async (text: string, voice?: string) => {
     try {
-      const response = await fetch('/api/admin/audio/generate-test', {
+      const response = await fetch(`${apiBase}/admin/audio/generate-test`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ text, voice }),
       });
 

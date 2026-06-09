@@ -104,6 +104,7 @@ export const contactsApi = {
         params: { businessId },
       }
     ),
+  update: (id: string, data: any) => api.patch(`/contacts/${id}`, data),
 }
 
 export const campaignsApi = {
@@ -172,6 +173,7 @@ export const ordersApi = {
 
 export const leadsApi = {
   getAll: (businessId: string) => api.get(`/leads?businessId=${businessId}`),
+  create: (businessId: string, data: any) => api.post(`/leads?businessId=${businessId}`, data),
   update: (id: string, data: any) => api.patch(`/leads/${id}`, data),
 }
 
@@ -305,32 +307,52 @@ export const socialApi = {
 }
 
 // ============== LIVE CHAT BRIDGE API ==============
-// Proxy al microservicio LIVE CHAT (Express :4000) via el puente NestJS
+// Endpoints legacy compatibles; hoy se resuelven desde el puente nativo NestJS.
 export const livechatApi = {
   // Chats
-  getChats: () => api.get('/livechat/chats'),
-  getChatMessages: (phone: string) => api.get(`/livechat/chats/${encodeURIComponent(phone)}`),
-  getCustomerProfile: (phone: string) => api.get(`/livechat/chats/${encodeURIComponent(phone)}/profile`),
-  getAvatar: (phone: string) => api.get(`/livechat/chats/${encodeURIComponent(phone)}/avatar`),
+  getChats: (businessId?: string) => api.get('/livechat/chats', { params: { businessId } }),
+  getChatMessages: (phone: string, businessId?: string) =>
+    api.get(`/livechat/chats/${encodeURIComponent(phone)}`, { params: { businessId } }),
+  getCustomerProfile: (phone: string, businessId?: string) =>
+    api.get(`/livechat/chats/${encodeURIComponent(phone)}/profile`, { params: { businessId } }),
+  getAvatar: (phone: string, businessId?: string) =>
+    api.get(`/livechat/chats/${encodeURIComponent(phone)}/avatar`, { params: { businessId } }),
   
   // Mensajería
-  sendMessage: (to: string, message: string, mediaUrl?: string) => 
-    api.post('/livechat/send', { to, message, mediaUrl }),
-  deleteMessage: (messageId: string) => api.delete(`/livechat/messages/${messageId}`),
-  clearChat: (phone: string) => api.delete(`/livechat/chats/${encodeURIComponent(phone)}/clear`),
+  sendMessage: (to: string, message: string, mediaUrl?: string, businessId?: string) => 
+    api.post('/livechat/send', { to, message, mediaUrl, businessId }),
+  deleteMessage: (messageId: string, businessId?: string) =>
+    api.delete(`/livechat/messages/${messageId}`, { params: { businessId } }),
+  clearChat: (phone: string, businessId?: string) =>
+    api.delete(`/livechat/chats/${encodeURIComponent(phone)}/clear`, { params: { businessId } }),
   
   // WhatsApp Web Control
-  getStatus: () => api.get('/livechat/status'),
-  startWhatsApp: (usePairingCode: boolean, phone: string) => 
-    api.post('/livechat/start', { usePairingCode, phone }),
-  disconnectWhatsApp: () => api.post('/livechat/disconnect'),
+  getStatus: (businessId?: string) => api.get('/livechat/status', { params: { businessId } }),
+  startWhatsApp: (usePairingCode: boolean, phone: string, businessId?: string) => 
+    api.post('/livechat/start', { usePairingCode, phone, businessId }),
+  disconnectWhatsApp: (businessId?: string) => api.post('/livechat/disconnect', { businessId }),
   
   // Bot IA Control
-  getBotEnabled: () => api.get('/livechat/bot-enabled'),
-  toggleBot: (enabled: boolean) => api.patch('/livechat/bot-enabled', { enabled }),
-  pauseBotForChat: (phone: string, paused: boolean) => 
-    api.patch(`/livechat/chats/${encodeURIComponent(phone)}/bot-pause`, { paused }),
-  getPauseStatuses: (phones: string[]) => api.post('/livechat/chats/pause-statuses', { phones }),
+  getBotEnabled: (businessId?: string) => api.get('/livechat/bot-enabled', { params: { businessId } }),
+  toggleBot: (enabled: boolean, businessId?: string) => api.patch('/livechat/bot-enabled', { enabled, businessId }),
+  pauseBotForChat: (phone: string, paused: boolean, businessId?: string) => 
+    api.patch(`/livechat/chats/${encodeURIComponent(phone)}/bot-pause`, { paused, businessId }),
+  getPauseStatuses: (phones: string[], businessId?: string) =>
+    api.post('/livechat/chats/pause-statuses', { phones, businessId }),
+}
+
+// ============== OMNICHANNEL API ==============
+export const omnichannelApi = {
+  getConversations: (businessId: string, params?: { channel?: string; search?: string; limit?: number }) =>
+    api.get('/omnichannel/conversations', { params: { businessId, ...(params || {}) } }),
+  getConversation: (businessId: string, conversationId: string, limit = 100) =>
+    api.get(`/omnichannel/conversations/${encodeURIComponent(conversationId)}`, { params: { businessId, limit } }),
+  sendMessage: (businessId: string, conversationId: string, message: string, subject?: string) =>
+    api.post(`/omnichannel/conversations/${encodeURIComponent(conversationId)}/messages`, { message, subject }, { params: { businessId } }),
+  saveCrmContext: (businessId: string, conversationId: string, data: any) =>
+    api.post(`/omnichannel/conversations/${encodeURIComponent(conversationId)}/crm`, data, { params: { businessId } }),
+  syncEmail: (businessId: string, limit = 25) =>
+    api.post('/omnichannel/email/sync', null, { params: { businessId, limit } }),
 }
 
 // ============== CRM CALL CENTER API ==============
@@ -360,5 +382,3 @@ export const clinicApi = {
   notifyLabResult: (businessId: string, fileId: string) => 
     api.post(`/clinic/notify-lab?businessId=${businessId}`, { fileId }),
 }
-
-

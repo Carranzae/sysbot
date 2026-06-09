@@ -40,6 +40,10 @@ export class CreateContactDto {
   @IsOptional()
   autoCreated?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  isAiPaused?: boolean;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ContactTagDto)
@@ -71,6 +75,10 @@ export class UpdateContactDto {
   @IsBoolean()
   @IsOptional()
   autoCreated?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isAiPaused?: boolean;
 
   @IsArray()
   @ValidateNested({ each: true })

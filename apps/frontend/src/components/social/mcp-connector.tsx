@@ -29,6 +29,7 @@ interface McpConnectorProps {
 
 export function McpConnector({ open, onOpenChange, businessId, businessName }: McpConnectorProps) {
   const { toast } = useToast();
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
   const [connectionCode, setConnectionCode] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -40,10 +41,11 @@ export function McpConnector({ open, onOpenChange, businessId, businessName }: M
   const generateCode = async () => {
     setIsGenerating(true);
     try {
-      const response = await fetch('/api/v1/mcp/generate-code', {
+      const response = await fetch(`${apiBase}/mcp/generate-code`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
         },
         body: JSON.stringify({
           businessId,

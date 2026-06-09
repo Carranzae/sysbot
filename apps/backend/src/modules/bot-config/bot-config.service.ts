@@ -91,7 +91,7 @@ export class BotConfigService {
         config: {
           welcomeMessage: testBotConfigDto.welcomeMessage || botConfig.welcomeMessage,
           fallbackMessage: testBotConfigDto.fallbackMessage || botConfig.fallbackMessage,
-          autoReply: testBotConfigDto.autoReply ?? botConfig.autoReply,
+          autoReply: (testBotConfigDto as any).autoReply ?? botConfig.autoReply,
         },
         testMessage: testBotConfigDto.testMessage || 'Hola, ¿qué servicios ofrecen?',
         response: this.generateTestResponse(testBotConfigDto.testMessage || 'Hola, ¿qué servicios ofrecen?', botConfig.business.industryType),
@@ -143,7 +143,7 @@ export class BotConfigService {
       const activatedConfig = await this.prisma.botConfig.update({
         where: { businessId },
         data: {
-          isActive: true,
+          autoReply: true,
           updatedAt: new Date(),
         },
         include: {
@@ -164,7 +164,7 @@ export class BotConfigService {
       const deactivatedConfig = await this.prisma.botConfig.update({
         where: { businessId },
         data: {
-          isActive: false,
+          autoReply: false,
           updatedAt: new Date(),
         },
         include: {
@@ -230,7 +230,7 @@ export class BotConfigService {
         satisfactionRate: Math.floor(Math.random() * 30) + 70, // 70-100%
         uptime: Math.floor(Math.random() * 5) + 95, // 95-100%
         lastActivity: new Date(Date.now() - Math.floor(Math.random() * 3600000)),
-        isActive: botConfig.isActive,
+        isActive: botConfig.autoReply,
         configVersion: botConfig.updatedAt,
       };
 

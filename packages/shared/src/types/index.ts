@@ -59,6 +59,7 @@ export interface AIPromptContext {
   conversationHistory?: string[];
   knowledgeContext: string[];
   customPrompt?: string;
+  platform?: string;
 }
 
 export interface MediaToSend {
@@ -76,6 +77,8 @@ export interface AIResponse {
   shouldEscalate: boolean;
   suggestedActions?: string[];
   processingTime: number;
+  sentiment?: string;
+  intent?: string;
   mediaToSend?: MediaToSend[]; // Medios que la IA quiere enviar
 }
 

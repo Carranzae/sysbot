@@ -143,18 +143,8 @@ export class PaymentAutomationController {
           id: true,
           name: true,
           paymentGateway: true,
-          paymentConfig: true,
           stripeAccountId: true,
           izipayMerchantId: true,
-          _count: {
-            select: {
-              automatedPayments: {
-                where: {
-                  status: 'PENDING'
-                }
-              }
-            }
-          }
         }
       });
 
@@ -162,11 +152,18 @@ export class PaymentAutomationController {
         throw new HttpException('Business not found', HttpStatus.NOT_FOUND);
       }
 
+      const pendingPaymentsCount = await this.prisma.automatedPayment.count({
+        where: {
+          businessId,
+          status: 'PENDING',
+        },
+      });
+
       return {
         success: true,
         business: {
           ...business,
-          pendingPaymentsCount: business._count.automatedPayments
+          pendingPaymentsCount,
         }
       };
     } catch (error) {

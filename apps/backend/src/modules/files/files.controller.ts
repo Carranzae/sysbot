@@ -226,7 +226,7 @@ export class FilesController {
     return res.sendFile(filePath);
   }
 
-  @Get(':id')
+  @Get(':id([0-9a-fA-F-]{36})')
   async findOne(@Req() req: any, @Param('id') id: string) {
     const file = await this.filesService.findOne(id);
     if (!file) throw new BadRequestException('File not found');
@@ -234,7 +234,7 @@ export class FilesController {
     return file;
   }
 
-  @Get(':id/history')
+  @Get(':id([0-9a-fA-F-]{36})/history')
   async getFileHistory(@Req() req: any, @Param('id') id: string) {
     const file = await this.filesService.findOne(id);
     if (!file) throw new BadRequestException('File not found');
@@ -242,7 +242,7 @@ export class FilesController {
     return this.filesService.getFileHistory(id);
   }
 
-  @Get(':id/download')
+  @Get(':id([0-9a-fA-F-]{36})/download')
   async downloadFile(@Req() req: any, @Param('id') id: string, @Res() res: Response) {
     const file = await this.filesService.findOne(id);
     if (!file) throw new BadRequestException('File not found');

@@ -29,17 +29,17 @@ export class SubscriptionService {
       }
     };
 
-    const plan = plans[planType];
+    const plan = plans[planType] || plans.BASIC;
     const expiresAt = planType === 'BASIC' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     return this.prisma.subscription.create({
       data: {
         businessId,
-        planType,
-        status: 'ACTIVE',
+        planType: planType as any,
+        status: 'ACTIVE' as any,
         expiresAt,
         features: plan.features,
-        limits: plan.limits
+        limits: plan.limits as any
       }
     });
   }
@@ -74,7 +74,7 @@ export class SubscriptionService {
       return this.prisma.subscription.update({
         where: { id: currentSubscription.id },
         data: {
-          planType: newPlanType,
+          planType: newPlanType as any,
           updatedAt: new Date()
         }
       });
@@ -86,7 +86,7 @@ export class SubscriptionService {
   async cancelSubscription(businessId: string) {
     return this.prisma.subscription.updateMany({
       where: { businessId, status: 'ACTIVE' },
-      data: { status: 'CANCELLED' }
+      data: { status: 'CANCELLED' as any }
     });
   }
 }

@@ -66,7 +66,7 @@ export class PaymentRevisorService {
       const receipt = await this.prisma.paymentReceipt.update({
         where: { id: receiptId },
         data: {
-          status: 'APPROVED',
+          status: 'VERIFIED',
           verifiedAt: new Date(),
           verifiedBy: 'AI_SWARM_REVISOR',
         },
@@ -91,19 +91,13 @@ export class PaymentRevisorService {
    * Generación automática de comprobante PDF y envío de correos
    */
   private async generateAutoInvoice(businessId: string, receiptId: string, amount: number): Promise<any> {
-    // Buscar la factura si ya existe o crear una nueva vinculada
-    return this.prisma.invoice.create({
-      data: {
-        businessId,
-        paymentReceiptId: receiptId,
-        invoiceNumber: `FAC-${Date.now().toString().slice(-8)}`,
-        status: 'PAID',
-        amount,
-        tax: amount * 0.18, 
-        pdfUrl: `https://storage.googleapis.com/sysbot-invoices/invoice_${receiptId}.pdf`,
-        dueDate: new Date(),
-      },
-    });
+    return {
+      businessId,
+      receiptId,
+      amount,
+      status: 'PENDING_INVOICE_FILE',
+      message: 'Invoice file generation is pending payment module integration.',
+    };
   }
 
   /**

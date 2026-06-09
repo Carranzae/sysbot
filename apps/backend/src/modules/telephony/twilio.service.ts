@@ -80,15 +80,15 @@ export class TwilioService {
 
     const gather = response.gather({
       input: ['speech'],
-      language: 'es-PE',
+      language: 'es-ES',
       timeout: 4,
       action: `/api/telephony/process-speech/${businessId}/${callSid}`,
     });
 
-    gather.say({ language: 'es-PE' }, welcomeMsg);
+    gather.say({ language: 'es-ES' }, welcomeMsg);
 
     // Fallback si no dicen nada
-    response.say({ language: 'es-PE' }, 'No logré escucharte. Gracias por llamar. Adiós.');
+    response.say({ language: 'es-ES' }, 'No logré escucharte. Gracias por llamar. Adiós.');
     response.hangup();
 
     return response.toString();
@@ -110,13 +110,13 @@ export class TwilioService {
         }
         const gather = response.gather({
           input: ['speech'],
-          language: 'es-PE',
+          language: 'es-ES',
           timeout: 4,
           action: `/api/telephony/process-speech/${businessId}/${callSid}`,
         });
-        gather.say({ language: 'es-PE' }, retryMsg);
+        gather.say({ language: 'es-ES' }, retryMsg);
         
-        response.say({ language: 'es-PE' }, 'Gracias por llamar. Hasta luego.');
+        response.say({ language: 'es-ES' }, 'Gracias por llamar. Hasta luego.');
         response.hangup();
         return response.toString();
       }
@@ -140,7 +140,7 @@ export class TwilioService {
 
       // Generar respuesta real usando el motor de IA
       const aiResponse = await this.aiService.generateResponse(businessId, speechResult, fromPhone, {
-        platform: 'TELEPHONY',
+        platform: 'WHATSAPP_API',
         senderId: fromPhone,
       });
 
@@ -184,7 +184,7 @@ export class TwilioService {
         if (callInfo) {
           callInfo.queryResolved = true;
         }
-        response.say({ language: 'es-PE' }, cleanMessage);
+        response.say({ language: 'es-ES' }, cleanMessage);
         response.hangup();
         return response.toString();
       }
@@ -192,13 +192,13 @@ export class TwilioService {
       // Continuar la conversación
       const gather = response.gather({
         input: ['speech'],
-        language: 'es-PE',
+        language: 'es-ES',
         timeout: 4,
         action: `/api/telephony/process-speech/${businessId}/${callSid}`,
       });
-      gather.say({ language: 'es-PE' }, cleanMessage);
+      gather.say({ language: 'es-ES' }, cleanMessage);
 
-      response.say({ language: 'es-PE' }, 'Gracias por llamar. Hasta luego.');
+      response.say({ language: 'es-ES' }, 'Gracias por llamar. Hasta luego.');
       response.hangup();
 
       return response.toString();
@@ -206,7 +206,7 @@ export class TwilioService {
     } catch (error) {
       this.logger.error('Error processing speech in call:', error);
       const response = new twiml.VoiceResponse();
-      response.say({ language: 'es-PE' }, 'Lo siento, ha ocurrido un error al procesar tu solicitud. Por favor llama nuevamente.');
+      response.say({ language: 'es-ES' }, 'Lo siento, ha ocurrido un error al procesar tu solicitud. Por favor llama nuevamente.');
       response.hangup();
       return response.toString();
     }
@@ -266,7 +266,7 @@ export class TwilioService {
 
   private generateTwiMLResponse(message: string): string {
     const response = new twiml.VoiceResponse();
-    response.say({ language: 'es-PE' }, message);
+    response.say({ language: 'es-ES' }, message);
     response.hangup();
     return response.toString();
   }

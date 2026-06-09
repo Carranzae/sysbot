@@ -317,5 +317,128 @@ export class PaymentService {
       throw error;
     }
   }
-}
 
+  async verifyBusinessAccess(userId: string, businessId: string): Promise<boolean> {
+    const business = await this.prisma.business.findFirst({
+      where: {
+        id: businessId,
+        ownerId: userId,
+      },
+      select: { id: true },
+    });
+
+    return Boolean(business);
+  }
+
+  async getInvoices(businessId: string, options: { page?: number; limit?: number; status?: string } = {}) {
+    const page = Number(options.page || 1);
+    const limit = Number(options.limit || 10);
+
+    const [items, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { businessId },
+        include: { invoiceFile: true, paymentReceipt: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.invoice.count({ where: { businessId } }),
+    ]);
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getReceipts(businessId: string, options: { page?: number; limit?: number; status?: string } = {}) {
+    const page = Number(options.page || 1);
+    const limit = Number(options.limit || 10);
+    const where: any = { businessId };
+    if (options.status) where.status = options.status;
+
+    const [items, total] = await Promise.all([
+      this.prisma.paymentReceipt.findMany({
+        where,
+        include: { receiptFile: true, appointment: true, invoices: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.paymentReceipt.count({ where }),
+    ]);
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async createPaymentIntent(dto: any) {
+    return {
+      status: 'PENDING_GATEWAY_CONFIGURATION',
+      amount: dto.amount,
+      currency: dto.currency || 'PEN',
+      businessId: dto.businessId,
+    };
+  }
+
+  async getInvoiceById(id: string) {
+    return this.prisma.invoice.findUnique({
+      where: { id },
+      include: { invoiceFile: true, paymentReceipt: true },
+    });
+  }
+
+  async getReceiptById(id: string) {
+    return this.prisma.paymentReceipt.findUnique({
+      where: { id },
+      include: { receiptFile: true, appointment: true, invoices: true },
+    });
+  }
+
+  async sendInvoice(id: string) {
+    return {
+      id,
+      sent: false,
+      status: 'PENDING_EMAIL_INTEGRATION',
+    };
+  }
+
+  async getPaymentStats(businessId: string) {
+    const [receipts, invoices] = await Promise.all([
+      this.prisma.paymentReceipt.count({ where: { businessId } }),
+      this.prisma.invoice.count({ where: { businessId } }),
+    ]);
+
+    return { receipts, invoices };
+  }
+
+  async handleStripeWebhook(payload: any, signature?: string) {
+    return { received: true, provider: 'STRIPE', eventType: payload?.type, signaturePresent: Boolean(signature) };
+  }
+
+  async getPaymentMethods(businessId: string) {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { paymentGateway: true },
+    });
+
+    return {
+      gateway: business?.paymentGateway || 'NONE',
+      methods: ['YAPE', 'PLIN', 'TRANSFER', 'CASH', 'CARD'],
+    };
+  }
+
+  async validatePayment(businessId: string, data: any) {
+    return {
+      businessId,
+      valid: false,
+      status: 'PENDING_VALIDATION_INTEGRATION',
+      data,
+    };
+  }
+
+  async exportPaymentData(businessId: string, options: any = {}) {
+    const [receipts, invoices] = await Promise.all([
+      this.prisma.paymentReceipt.findMany({ where: { businessId } }),
+      this.prisma.invoice.findMany({ where: { businessId } }),
+    ]);
+
+    return { businessId, options, receipts, invoices };
+  }
+}

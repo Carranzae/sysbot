@@ -448,7 +448,6 @@ export default function CRMPage() {
                         value={selectedProvider}
                         onValueChange={(value) => {
                           setSelectedProvider(value)
-                          // Resetear formulario al cambiar proveedor
                           setFormData({
                             accessToken: '',
                             refreshToken: '',
@@ -456,6 +455,7 @@ export default function CRMPage() {
                             apiSecret: '',
                             baseUrl: '',
                             pageId: '',
+                            spreadsheetId: '',
                             syncEnabled: true,
                             syncDirection: 'BIDIRECTIONAL',
                           })
