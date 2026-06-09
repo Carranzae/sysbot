@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { CRMChannelType, TelegramAuthStatus, UserRole } from '@syst/database'
 import { PrismaService } from '../database/prisma.service'
 import { ChannelConfigService } from '../channel-config/channel-config.service'
@@ -22,6 +22,8 @@ type AccessOptions = {
 
 @Injectable()
 export class CRMChannelMappingService {
+  private readonly logger = new Logger(CRMChannelMappingService.name)
+
   constructor(private readonly prisma: PrismaService, private readonly channelConfig: ChannelConfigService) {}
 
   private buildChannelOptions(status: any): ChannelOption[] {
@@ -198,18 +200,21 @@ export class CRMChannelMappingService {
     const status = await this.channelConfig.getChannelStatus(businessId, access)
     const options = this.buildChannelOptions(status)
 
-    const connection = await this.prisma.cRMConnection.findUnique({ where: { businessId } })
+    const connection = await this.safeQuery('CRM connection', () => this.prisma.cRMConnection.findUnique({ where: { businessId } }))
     if (!connection) {
       return { options, enabledKeys: [] }
     }
 
-    const mappings = await this.prisma.cRMChannelMapping.findMany({
-      where: { crmConnectionId: connection.id },
-    })
+    const mappings = await this.safeQuery('CRM channel mappings', () =>
+      this.prisma.cRMChannelMapping.findMany({
+        where: { crmConnectionId: connection.id },
+      }),
+      [],
+    )
 
     return {
       options,
-      enabledKeys: mappings.filter((mapping) => mapping.enabled).map((mapping) => mapping.channelKey),
+      enabledKeys: (mappings || []).filter((mapping) => mapping.enabled).map((mapping) => mapping.channelKey),
     }
   }
 
@@ -281,5 +286,14 @@ export class CRMChannelMappingService {
     })
 
     return { success: true }
+  }
+
+  private async safeQuery<T>(label: string, query: () => Promise<T>, fallback: T | null = null): Promise<T | null> {
+    try {
+      return await query()
+    } catch (error: any) {
+      this.logger.warn(`[CRM channels] ${label} skipped: ${error.message}`)
+      return fallback
+    }
   }
 }

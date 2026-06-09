@@ -41,16 +41,12 @@ export default function BusinessesPage() {
 
   const loadBusinesses = useCallback(async () => {
     try {
-      console.log('Loading businesses...')
       const response = await businessApi.getAll()
-      console.log('Businesses response:', response)
-      setBusinesses(response.data)
-      console.log('Businesses set:', response.data)
-    } catch (error) {
-      console.error('Error loading businesses:', error)
+      setBusinesses(Array.isArray(response.data) ? response.data : [])
+    } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los negocios',
+        title: 'No se pudieron cargar los negocios',
+        description: error.response?.data?.message || 'Revisa tu sesión y la conexión con el backend.',
         variant: 'destructive',
       })
     } finally {
@@ -65,8 +61,6 @@ export default function BusinessesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    console.log('Submitting business:', formData)
-
     // Limpiar campos vacíos antes de enviar
     const cleanedData = Object.fromEntries(
       Object.entries(formData).filter(([_, value]) => {
@@ -74,20 +68,15 @@ export default function BusinessesPage() {
         return value !== undefined && value !== null && value.toString().trim() !== ''
       })
     )
-    console.log('Cleaned data:', cleanedData)
-
     try {
       if (editingBusiness) {
-        console.log('Updating business:', editingBusiness.id, cleanedData)
         await businessApi.update(editingBusiness.id, cleanedData)
         toast({
           title: 'Negocio actualizado',
           description: 'El negocio se actualizó correctamente',
         })
       } else {
-        console.log('Creating business:', cleanedData)
-        const response = await businessApi.create(cleanedData)
-        console.log('Business created response:', response)
+        await businessApi.create(cleanedData)
         toast({
           title: 'Negocio creado',
           description: 'El negocio se creó correctamente',
@@ -105,9 +94,8 @@ export default function BusinessesPage() {
         email: '',
         address: '',
       })
-      loadBusinesses()
+      void loadBusinesses()
     } catch (error: any) {
-      console.error('Error saving business:', error)
       toast({
         title: 'Error',
         description: error.response?.data?.message || 'No se pudo guardar el negocio',
@@ -144,11 +132,11 @@ export default function BusinessesPage() {
       if (selectedBusiness?.id === id) {
         setSelectedBusiness(null)
       }
-      loadBusinesses()
-    } catch (error) {
+      void loadBusinesses()
+    } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'No se pudo eliminar el negocio',
+        title: 'No se pudo eliminar el negocio',
+        description: error.response?.data?.message || 'Intenta nuevamente.',
         variant: 'destructive',
       })
     }

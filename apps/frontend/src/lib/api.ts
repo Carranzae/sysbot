@@ -10,7 +10,7 @@ export const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -20,7 +20,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('token')
       window.location.href = '/login'
     }
@@ -234,9 +234,23 @@ export const crmApi = {
   triggerSync: (businessId: string) => api.post(`/crm/connection/${businessId}/sync`),
   getSyncLogs: (businessId: string, params?: { limit?: number; offset?: number }) =>
     api.get(`/crm/connection/${businessId}/sync-logs`, { params }),
-  getChannelMappings: (businessId: string) => api.get(`/crm/connection/${businessId}/channels`),
+  getChannelMappings: async (businessId: string) => {
+    try {
+      return await api.get(`/crm/connection/${businessId}/channels`)
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return api.get(`/crm/channels/${businessId}`)
+      }
+      throw error
+    }
+  },
   saveChannelMappings: (businessId: string, channelKeys: string[]) =>
-    api.post(`/crm/connection/${businessId}/channels`, { channelKeys }),
+    api.post(`/crm/connection/${businessId}/channels`, { channelKeys }).catch((error) => {
+      if (error.response?.status === 404) {
+        return api.post(`/crm/channels/${businessId}`, { channelKeys })
+      }
+      throw error
+    }),
   deleteConnection: (businessId: string) => api.delete(`/crm/connection/${businessId}`),
 }
 

@@ -39,29 +39,31 @@ export class OmnichannelService {
     const search = query.search?.trim().toLowerCase();
 
     const [messages, contacts, leads, calls] = await Promise.all([
-      this.prisma.message.findMany({
-        where: {
-          businessId,
-          ...(channel && channel !== 'VOICE' ? { platform: channel } : {}),
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 1000,
-      }),
-      this.prisma.contact.findMany({
-        where: { businessId },
-        include: { tags: true },
-        orderBy: { updatedAt: 'desc' },
-      }),
-      this.prisma.lead.findMany({
-        where: { businessId },
-        orderBy: { updatedAt: 'desc' },
-      }),
-      this.prisma.callLog.findMany({
-        where: { businessId },
-        include: { contact: true },
-        orderBy: { createdAt: 'desc' },
-        take: 300,
-      }),
+      this.safeFindMany('messages', businessId, () =>
+        this.prisma.message.findMany({
+          where: {
+            businessId,
+            ...(channel && channel !== 'VOICE' ? { platform: channel } : {}),
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1000,
+        }),
+      ),
+      this.findContactsForInbox(businessId),
+      this.safeFindMany('leads', businessId, () =>
+        this.prisma.lead.findMany({
+          where: { businessId },
+          orderBy: { updatedAt: 'desc' },
+        }),
+      ),
+      this.safeFindMany('calls', businessId, () =>
+        this.prisma.callLog.findMany({
+          where: { businessId },
+          include: { contact: true },
+          orderBy: { createdAt: 'desc' },
+          take: 300,
+        }),
+      ),
     ]);
 
     const contactsByIdentity = this.indexContacts(contacts);
@@ -190,21 +192,25 @@ export class OmnichannelService {
     const lead = await this.findLeadForIdentity(businessId, channel, identity);
 
     const [messages, calls] = await Promise.all([
-      this.prisma.message.findMany({
-        where: {
-          businessId,
-          ...(channel !== 'VOICE' ? { platform: channel } : {}),
-          OR: [{ from: identity }, { to: identity }],
-        },
-        orderBy: { createdAt: 'asc' },
-        take,
-      }),
+      this.safeFindMany('conversation messages', businessId, () =>
+        this.prisma.message.findMany({
+          where: {
+            businessId,
+            ...(channel !== 'VOICE' ? { platform: channel } : {}),
+            OR: [{ from: identity }, { to: identity }],
+          },
+          orderBy: { createdAt: 'asc' },
+          take,
+        }),
+      ),
       contact
-        ? this.prisma.callLog.findMany({
-            where: { businessId, contactId: contact.id },
-            orderBy: { createdAt: 'asc' },
-            take,
-          })
+        ? this.safeFindMany('conversation calls', businessId, () =>
+            this.prisma.callLog.findMany({
+              where: { businessId, contactId: contact.id },
+              orderBy: { createdAt: 'asc' },
+              take,
+            }),
+          )
         : Promise.resolve([]),
     ]);
 
@@ -349,13 +355,27 @@ export class OmnichannelService {
     };
 
     if (existing) {
-      return this.prisma.contact.update({ where: { id: existing.id }, data: payload as any, include: { tags: true } });
+      try {
+        return await this.prisma.contact.update({ where: { id: existing.id }, data: payload as any, include: { tags: true } });
+      } catch (error: any) {
+        this.logger.warn(`[Omnichannel] Contact update fell back without tags: ${error.message}`);
+        const updated = await this.prisma.contact.update({ where: { id: existing.id }, data: payload as any });
+        return { ...updated, tags: [] };
+      }
     }
 
-    return this.prisma.contact.create({
-      data: { businessId, ...payload, autoCreated: true } as any,
-      include: { tags: true },
-    });
+    try {
+      return await this.prisma.contact.create({
+        data: { businessId, ...payload, autoCreated: true } as any,
+        include: { tags: true },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[Omnichannel] Contact create fell back without tags: ${error.message}`);
+      const created = await this.prisma.contact.create({
+        data: { businessId, ...payload, autoCreated: true } as any,
+      });
+      return { ...created, tags: [] };
+    }
   }
 
   private async syncCrmBestEffort(businessId: string, contact: any, lead: any, metadata: any) {
@@ -413,6 +433,34 @@ export class OmnichannelService {
     }
   }
 
+  private async safeFindMany<T>(label: string, businessId: string, query: () => Promise<T[]>): Promise<T[]> {
+    try {
+      return await query();
+    } catch (error: any) {
+      this.logger.warn(`[Omnichannel] ${label} query skipped for business ${businessId}: ${error.message}`);
+      return [];
+    }
+  }
+
+  private async findContactsForInbox(businessId: string) {
+    try {
+      return await this.prisma.contact.findMany({
+        where: { businessId },
+        include: { tags: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[Omnichannel] contacts query fell back without tags for business ${businessId}: ${error.message}`);
+      const contacts = await this.safeFindMany('contacts fallback', businessId, () =>
+        this.prisma.contact.findMany({
+          where: { businessId },
+          orderBy: { updatedAt: 'desc' },
+        }),
+      );
+      return contacts.map((contact: any) => ({ ...contact, tags: [] }));
+    }
+  }
+
   private indexContacts(contacts: any[]) {
     const map = new Map<string, any>();
     for (const contact of contacts) {
@@ -440,36 +488,58 @@ export class OmnichannelService {
   }
 
   private async findContactForIdentity(businessId: string, channel: ChannelKey, identity: string) {
-    return this.prisma.contact.findFirst({
-      where: {
-        businessId,
-        OR: [
-          { phone: identity },
-          { email: identity },
-          { metadata: { path: ['externalIdentity'], equals: identity } as any },
-        ],
-      },
-      include: { tags: true },
-    });
+    try {
+      return await this.prisma.contact.findFirst({
+        where: {
+          businessId,
+          OR: [
+            { phone: identity },
+            { email: identity },
+            { metadata: { path: ['externalIdentity'], equals: identity } as any },
+          ],
+        },
+        include: { tags: true },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[Omnichannel] contact identity lookup fell back for ${businessId}: ${error.message}`);
+      const contact = await this.prisma.contact.findFirst({
+        where: {
+          businessId,
+          OR: [{ phone: identity }, { email: identity }],
+        },
+      });
+      return contact ? { ...contact, tags: [] } : null;
+    }
   }
 
   private async findLeadForIdentity(businessId: string, channel: ChannelKey, identity: string) {
-    return this.prisma.lead.findFirst({
-      where: {
-        businessId,
-        OR: [
-          { phone: identity },
-          { email: identity },
-          {
-            AND: [
-              { source: channel },
-              { metadata: { path: ['conversationId'], equals: this.encodeConversation({ channel, identity }) } as any },
-            ],
-          },
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    try {
+      return await this.prisma.lead.findFirst({
+        where: {
+          businessId,
+          OR: [
+            { phone: identity },
+            { email: identity },
+            {
+              AND: [
+                { source: channel },
+                { metadata: { path: ['conversationId'], equals: this.encodeConversation({ channel, identity }) } as any },
+              ],
+            },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[Omnichannel] lead identity lookup fell back for ${businessId}: ${error.message}`);
+      return this.prisma.lead.findFirst({
+        where: {
+          businessId,
+          OR: [{ phone: identity }, { email: identity }],
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
   }
 
   private messageRemoteIdentity(message: any) {

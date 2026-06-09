@@ -19,12 +19,17 @@ export class CRMController {
 
   @Get('connection/:businessId')
   async getConnection(@Param('businessId') businessId: string) {
-    const connection = await this.prisma.cRMConnection.findUnique({
-      where: { businessId },
-      include: {
-        labelMappings: true,
-      },
-    });
+    let connection: any = null;
+    try {
+      connection = await this.prisma.cRMConnection.findUnique({
+        where: { businessId },
+        include: {
+          labelMappings: true,
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[CRMController] CRM connection unavailable for ${businessId}: ${error.message}`);
+    }
 
     if (!connection) {
       return {
@@ -352,6 +357,11 @@ export class CRMController {
     });
   }
 
+  @Get('channels/:businessId')
+  async getChannelMappingsAlias(@Req() req: any, @Param('businessId') businessId: string) {
+    return this.getChannelMappings(req, businessId);
+  }
+
   @Post('connection/:businessId/channels')
   async saveChannelMappings(
     @Req() req: any,
@@ -362,6 +372,15 @@ export class CRMController {
       ownerId: req.user?.userId,
       role: req.user?.role as UserRole | undefined,
     });
+  }
+
+  @Post('channels/:businessId')
+  async saveChannelMappingsAlias(
+    @Req() req: any,
+    @Param('businessId') businessId: string,
+    @Body() body: { channelKeys: string[] },
+  ) {
+    return this.saveChannelMappings(req, businessId, body);
   }
 
   @Get('connection/:businessId/sync-logs')

@@ -87,12 +87,7 @@ export class WhatsappController {
   @Post('web/init')
   @UseGuards(JwtAuthGuard)
   async initWeb(@Req() req: any, @Body() body: { businessId?: string }): Promise<{ success: boolean; message?: string }> {
-    console.log('POST /whatsapp/web/init - req.user:', req.user);
-    console.log('POST /whatsapp/web/init - body:', body);
-    
     const businessId = body.businessId || req.user?.businessId;
-    console.log('POST /whatsapp/web/init - final businessId:', businessId);
-    
     if (!businessId) {
       throw new BadRequestException('Business ID is required (provide in body or ensure user has active business)');
     }

@@ -586,11 +586,13 @@ export default function BusinessSettingsPage() {
         }
 
         try {
-            console.log('Connecting WhatsApp for business:', businessId)
+            if ((window as any).qrRefreshInterval) {
+                clearInterval((window as any).qrRefreshInterval)
+                delete (window as any).qrRefreshInterval
+            }
             
             // Inicializar WhatsApp Web
             await whatsappApi.initWeb(businessId)
-            console.log('WhatsApp Web initialized')
             
             // Obtener el código QR inicial
             await refreshQrCode()
@@ -613,10 +615,10 @@ export default function BusinessSettingsPage() {
                 description: 'Escanea el código QR con WhatsApp. El QR se actualizará automáticamente cada 15 segundos.',
             })
         } catch (error: any) {
-            console.error('Error connecting WhatsApp:', error)
+            const backendMessage = error.response?.data?.message || error.message
             toast({
-                title: 'Error',
-                description: error.response?.data?.message || 'No se pudo generar el código QR',
+                title: 'No se pudo iniciar WhatsApp Web',
+                description: backendMessage || 'Configura el número del negocio y revisa que Railway pueda abrir la sesión de WhatsApp.',
                 variant: 'destructive',
             })
         }
@@ -627,8 +629,6 @@ export default function BusinessSettingsPage() {
         
         try {
             const response = await whatsappApi.getQr(businessId)
-            console.log('QR response:', response.data)
-            
             setWhatsappForm(prev => ({
                 ...prev,
                 webConnection: {

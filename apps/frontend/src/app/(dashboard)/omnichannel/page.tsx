@@ -134,6 +134,9 @@ const defaultAutomation: AutomationDraft = {
   useAi: true,
 }
 
+const DEFAULT_AGENT_OBJECTIVE = 'Calificar leads, responder dudas y escalar a ventas cuando detecte alta intencion.'
+const DEFAULT_AGENT_TONE = 'Profesional, claro, cercano y orientado a conversion.'
+
 function normalizeChannel(value?: string): ChannelKey {
   const raw = (value || '').toLowerCase()
   if (raw.includes('instagram')) return 'instagram'
@@ -199,6 +202,12 @@ function parseMetadata(value: any) {
   return value
 }
 
+function apiFailureLabel(label: string, result: PromiseSettledResult<any>) {
+  if (result.status === 'fulfilled') return null
+  const message = result.reason?.response?.data?.message || result.reason?.message || 'API no disponible'
+  return `${label}: ${message}`
+}
+
 export default function OmnichannelPage() {
   const { toast } = useToast()
   const selectedBusiness = useBusinessStore((state) => state.selectedBusiness)
@@ -220,6 +229,7 @@ export default function OmnichannelPage() {
   const [botConfig, setBotConfig] = useState<any>(null)
   const [botRules, setBotRules] = useState<any[]>([])
   const [channelHealth, setChannelHealth] = useState<Record<string, any>>({})
+  const [loadIssues, setLoadIssues] = useState<string[]>([])
 
   const [crmStage, setCrmStage] = useState<LeadStage>('NEW')
   const [nextAction, setNextAction] = useState('Enviar seguimiento comercial')
@@ -230,8 +240,8 @@ export default function OmnichannelPage() {
   const [automation, setAutomation] = useState<AutomationDraft>(defaultAutomation)
   const [savingAutomation, setSavingAutomation] = useState(false)
 
-  const [agentObjective, setAgentObjective] = useState('Calificar leads, responder dudas y escalar a ventas cuando detecte alta intencion.')
-  const [agentTone, setAgentTone] = useState('Profesional, claro, cercano y orientado a conversion.')
+  const [agentObjective, setAgentObjective] = useState(DEFAULT_AGENT_OBJECTIVE)
+  const [agentTone, setAgentTone] = useState(DEFAULT_AGENT_TONE)
   const [agentEscalation, setAgentEscalation] = useState(true)
   const [agentMaxTurns, setAgentMaxTurns] = useState('6')
   const [savingAgent, setSavingAgent] = useState(false)
@@ -297,8 +307,6 @@ export default function OmnichannelPage() {
         waRes,
       ] = await Promise.allSettled([
         omnichannelApi.getConversations(selectedBusiness.id, {
-          channel: channel === 'all' ? undefined : channel,
-          search: query || undefined,
           limit: 120,
         }),
         leadsApi.getAll(selectedBusiness.id),
@@ -311,6 +319,19 @@ export default function OmnichannelPage() {
         metaApi.getConnection(selectedBusiness.id),
         whatsappApi.getStatus(selectedBusiness.id),
       ])
+
+      setLoadIssues([
+        apiFailureLabel('Inbox', chatsRes),
+        apiFailureLabel('Leads', leadsRes),
+        apiFailureLabel('Contactos', contactsRes),
+        apiFailureLabel('CRM', crmRes),
+        apiFailureLabel('Archivos', filesRes),
+        apiFailureLabel('Bot config', botConfigRes),
+        apiFailureLabel('Reglas IA', rulesRes),
+        apiFailureLabel('Canales', channelsRes),
+        apiFailureLabel('Meta', metaRes),
+        apiFailureLabel('WhatsApp', waRes),
+      ].filter(Boolean) as string[])
 
       if (chatsRes.status === 'fulfilled') {
         const data = chatsRes.value.data
@@ -325,8 +346,8 @@ export default function OmnichannelPage() {
         const config = botConfigRes.value.data || {}
         setBotConfig(config)
         const prompt = config.customPrompt || config.systemPrompt || ''
-        setAgentObjective(config.agentObjective || prompt || agentObjective)
-        setAgentTone(config.agentTone || config.businessTone || agentTone)
+        setAgentObjective(config.agentObjective || prompt || DEFAULT_AGENT_OBJECTIVE)
+        setAgentTone(config.agentTone || config.businessTone || DEFAULT_AGENT_TONE)
         setAgentEscalation(config.humanEscalationEnabled ?? true)
         setAgentMaxTurns(String(config.maxTokens ? Math.max(1, Math.round(config.maxTokens / 120)) : 6))
       }
@@ -400,7 +421,7 @@ export default function OmnichannelPage() {
     } finally {
       setLoading(false)
     }
-  }, [agentObjective, agentTone, channel, query, selectedBusiness, toast])
+  }, [selectedBusiness, toast])
 
   useEffect(() => {
     loadWorkspace()
@@ -621,6 +642,16 @@ export default function OmnichannelPage() {
             <WorkspaceTab value="health" icon={Activity} label="Canales" />
             <WorkspaceTab value="launch" icon={Rocket} label="Lanzamiento" />
           </TabsList>
+
+          {loadIssues.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+              <div>
+                <p className="font-bold">Algunos módulos están trabajando en modo degradado.</p>
+                <p className="mt-1 text-xs">{loadIssues.slice(0, 3).join(' | ')}</p>
+              </div>
+            </div>
+          )}
 
           <TabsContent value="inbox" className="mt-0">
             <div className="grid min-h-[680px] grid-cols-1 gap-4 xl:grid-cols-[340px_minmax(0,1fr)_360px]">

@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CreateContactDto, UpdateContactDto } from './dto/contact.dto';
 import { ContactSource, MessageDirection, Prisma } from '@syst/database';
 
 @Injectable()
 export class ContactsService {
+  private readonly logger = new Logger(ContactsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(businessId: string, whatsappAccountId: string | undefined, data: CreateContactDto) {
@@ -30,12 +32,15 @@ export class ContactsService {
 
   async findAll(businessId: string, params: { search?: string; source?: string; tag?: string } = {}) {
     const { search, source, tag } = params;
+    const sourceFilter = source && Object.values(ContactSource).includes(source as ContactSource)
+      ? (source as ContactSource)
+      : undefined;
 
     const where: Prisma.ContactWhereInput = {
       businessId,
-      ...(source
+      ...(sourceFilter
         ? {
-            source: source as any,
+            source: sourceFilter,
           }
         : {}),
       ...(search
@@ -58,13 +63,34 @@ export class ContactsService {
         : {}),
     };
 
-    return this.prisma.contact.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        tags: true,
-      },
-    });
+    try {
+      return await this.prisma.contact.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          tags: true,
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[Contacts] Falling back without tags for business ${businessId}: ${error.message}`);
+
+      const fallbackWhere = tag
+        ? { businessId, ...(sourceFilter ? { source: sourceFilter } : {}) }
+        : where;
+
+      const contacts = await this.prisma.contact.findMany({
+        where: fallbackWhere,
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const normalized = contacts.map((contact) => ({ ...contact, tags: [] }));
+      if (!tag) return normalized;
+
+      return normalized.filter((contact) => {
+        const metadataTags = Array.isArray((contact.metadata as any)?.tags) ? (contact.metadata as any).tags : [];
+        return metadataTags.map((item: any) => String(item).toLowerCase()).includes(tag.toLowerCase());
+      });
+    }
   }
 
   async findOne(id: string) {
