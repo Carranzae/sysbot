@@ -33,7 +33,9 @@ export class CrmCallController {
     @Request() req,
     @Body()
     body: {
-      contactId: string;
+      contactId?: string;
+      contactPhone?: string;
+      contactName?: string;
       duration: number;
       status: 'COMPLETED' | 'MISSED' | 'BUSY' | 'FAILED';
       recordingUrl?: string;

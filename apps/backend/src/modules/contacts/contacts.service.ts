@@ -9,6 +9,23 @@ export class ContactsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly contactListSelect = {
+    id: true,
+    name: true,
+    phone: true,
+    email: true,
+    source: true,
+    autoCreated: true,
+    metadata: true,
+    lastIncomingAt: true,
+    lastOutgoingAt: true,
+    createdAt: true,
+    updatedAt: true,
+    businessId: true,
+    whatsappAccountId: true,
+    tags: true,
+  } satisfies Prisma.ContactSelect;
+
   async create(businessId: string, whatsappAccountId: string | undefined, data: CreateContactDto) {
     const { tags, ...rest } = data;
     return this.prisma.contact.create({
@@ -24,9 +41,7 @@ export class ContactsService {
             }
           : undefined,
       },
-      include: {
-        tags: true,
-      },
+      select: this.contactListSelect,
     });
   }
 
@@ -67,9 +82,7 @@ export class ContactsService {
       return await this.prisma.contact.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        include: {
-          tags: true,
-        },
+        select: this.contactListSelect,
       });
     } catch (error: any) {
       this.logger.warn(`[Contacts] Falling back without tags for business ${businessId}: ${error.message}`);
@@ -81,6 +94,21 @@ export class ContactsService {
       const contacts = await this.prisma.contact.findMany({
         where: fallbackWhere,
         orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          source: true,
+          autoCreated: true,
+          metadata: true,
+          lastIncomingAt: true,
+          lastOutgoingAt: true,
+          createdAt: true,
+          updatedAt: true,
+          businessId: true,
+          whatsappAccountId: true,
+        },
       });
 
       const normalized = contacts.map((contact) => ({ ...contact, tags: [] }));
@@ -96,7 +124,7 @@ export class ContactsService {
   async findOne(id: string) {
     const contact = await this.prisma.contact.findUnique({
       where: { id },
-      include: { tags: true },
+      select: this.contactListSelect,
     });
 
     if (!contact) {
@@ -124,9 +152,7 @@ export class ContactsService {
             }
           : {}),
       },
-      include: {
-        tags: true,
-      },
+      select: this.contactListSelect,
     });
   }
 

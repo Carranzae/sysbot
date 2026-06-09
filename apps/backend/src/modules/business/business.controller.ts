@@ -18,9 +18,6 @@ export class BusinessController {
 
   @Post()
   create(@Req() req: any, @Body() createBusinessDto: CreateBusinessDto) {
-    console.log('POST /businesses - req.user:', req.user);
-    console.log('POST /businesses - createBusinessDto:', createBusinessDto);
-    
     if (!req.user?.userId) {
       throw new BadRequestException('User ID not found in token');
     }
@@ -29,8 +26,6 @@ export class BusinessController {
 
   @Get()
   findAll(@Req() req: any) {
-    console.log('findAll called with userId:', req.user?.userId);
-    console.log('findAll called with user:', req.user);
     return this.businessService.findAll(req.user?.userId);
   }
 
@@ -94,10 +89,6 @@ export class BusinessController {
 
   @Patch(':id/bot-config')
   updateBotConfig(@Req() req: any, @Param('id') id: string, @Body() config: UpdateBotConfigDto) {
-    console.log('PATCH /businesses/:id/bot-config - req.user:', req.user);
-    console.log('PATCH /businesses/:id/bot-config - businessId:', id);
-    console.log('PATCH /businesses/:id/bot-config - config:', config);
-    
     return this.businessService.updateBotConfig(req.user?.userId, id, config, req.user?.role);
   }
 

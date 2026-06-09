@@ -56,6 +56,61 @@ export class PaymentAutomationController {
     }
   }
 
+  @Post(':paymentId/refund')
+  async refundPayment(
+    @Param('paymentId') paymentId: string,
+    @Body() body: { amount?: number; reason?: string }
+  ) {
+    try {
+      this.logger.log(`[PaymentAutomation] Refunding payment: ${paymentId}`);
+
+      const result = await this.paymentAutomationService.refundPayment(
+        paymentId,
+        body.amount,
+        body.reason
+      );
+
+      return {
+        success: true,
+        result,
+        message: 'Payment refunded successfully'
+      };
+    } catch (error) {
+      this.logger.error('[PaymentAutomation] Error refunding payment:', error.message);
+      throw new HttpException(
+        error.message || 'Failed to refund payment',
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @Get('business/:businessId')
+  async getAllPayments(
+    @Param('businessId') businessId: string,
+    @Query('limit') limit?: number
+  ) {
+    try {
+      this.logger.log(`[PaymentAutomation] Getting all payments for business ${businessId}`);
+      
+      const payments = await this.paymentAutomationService.getAllPayments(
+        businessId,
+        limit ? parseInt(limit.toString()) : 50
+      );
+      
+      return {
+        success: true,
+        payments,
+        count: payments.length
+      };
+    } catch (error) {
+      this.logger.error('[PaymentAutomation] Error getting all payments:', error.message);
+      throw new HttpException(
+        error.message || 'Failed to get payments',
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
   @Get('business/:businessId/pending')
   async getPendingPayments(
     @Param('businessId') businessId: string,
@@ -170,6 +225,27 @@ export class PaymentAutomationController {
       this.logger.error('[PaymentAutomation] Error getting business payment details:', error.message);
       throw new HttpException(
         error.message || 'Failed to get business payment details',
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @Post('business/:businessId/test-gateway')
+  async testGateway(
+    @Param('businessId') businessId: string,
+    @Body() body: { gateway: string }
+  ) {
+    try {
+      this.logger.log(`[PaymentAutomation] Testing gateway ${body.gateway} for business ${businessId}`);
+      const result = await this.paymentAutomationService.testGatewayConnection(
+        businessId,
+        body.gateway.toUpperCase() as any
+      );
+      return result;
+    } catch (error) {
+      this.logger.error('[PaymentAutomation] Error testing gateway:', error.message);
+      throw new HttpException(
+        error.message || 'Failed to test gateway',
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }

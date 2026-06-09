@@ -12,7 +12,9 @@ export class CrmCallService {
    */
   async logCall(data: {
     businessId: string;
-    contactId: string;
+    contactId?: string;
+    contactPhone?: string;
+    contactName?: string;
     duration: number;
     status: 'COMPLETED' | 'MISSED' | 'BUSY' | 'FAILED';
     recordingUrl?: string;
@@ -20,12 +22,42 @@ export class CrmCallService {
     sentiment?: string;
     queryResolved: boolean;
   }): Promise<any> {
-    this.logger.log(`[CRM Call] Registrando llamada del contacto ${data.contactId} con duración ${data.duration}s`);
+    this.logger.log(`[CRM Call] Registrando llamada. contactId: ${data.contactId}, phone: ${data.contactPhone}`);
+
+    let contactId = data.contactId;
+
+    if (!contactId && data.contactPhone) {
+      // Intentar buscar el contacto por teléfono
+      let contact = await this.prisma.contact.findFirst({
+        where: {
+          businessId: data.businessId,
+          phone: data.contactPhone,
+        },
+      });
+
+      // Si no existe, crearlo automáticamente
+      if (!contact) {
+        contact = await this.prisma.contact.create({
+          data: {
+            businessId: data.businessId,
+            phone: data.contactPhone,
+            name: data.contactName || 'Cliente Anónimo',
+            source: 'MANUAL',
+            autoCreated: true,
+          },
+        });
+      }
+      contactId = contact.id;
+    }
+
+    if (!contactId) {
+      throw new BadRequestException('Se requiere contactId o contactPhone para registrar la llamada.');
+    }
 
     const callLog = await this.prisma.callLog.create({
       data: {
         businessId: data.businessId,
-        contactId: data.contactId,
+        contactId: contactId,
         duration: data.duration,
         status: data.status,
         recordingUrl: data.recordingUrl,

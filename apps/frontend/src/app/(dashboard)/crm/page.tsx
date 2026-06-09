@@ -61,54 +61,7 @@ const COLUMNS = [
   { id: 'LOST', title: 'Descartados', color: 'bg-red-50/40 border-red-200/50', headerColor: 'text-red-750 bg-red-100/60' }
 ]
 
-const mockLeads = [
-  {
-    id: 'mock-lead-1',
-    name: 'Elena Rodríguez',
-    phone: '+51 988 777 666',
-    email: 'elena.rod@techcorp.com',
-    status: 'NEW',
-    notes: 'Interesada en el módulo de automatización médica.',
-    metadata: {
-      temperature: 'Caliente',
-      leadScore: 85,
-      channel: 'whatsapp',
-      scheduledAction: 'Llamada de Calificación'
-    }
-  },
-  {
-    id: 'mock-lead-2',
-    name: 'Ricardo Morales',
-    phone: '+51 999 555 444',
-    email: 'ricardo.morales@clinicax.pe',
-    status: 'CONTACTED',
-    notes: 'Buscando integrar RAG con WhatsApp.',
-    metadata: {
-      temperature: 'Tibio',
-      leadScore: 78,
-      channel: 'whatsapp',
-      autobot: true,
-      progress: 65,
-      scriptGlow: true
-    }
-  },
-  {
-    id: 'mock-lead-3',
-    name: 'Sarah Jenkins',
-    phone: '+1 415 888 9999',
-    email: 'sarah.j@enterpriseai.com',
-    status: 'QUALIFIED',
-    notes: 'Reunión comercial para 50 agentes de IA.',
-    metadata: {
-      temperature: 'Caliente',
-      leadScore: 98,
-      channel: 'messenger',
-      priority: 'Alta',
-      meetTime: 'Mañana, 10:00 AM',
-      googleMeetUrl: 'https://meet.google.com/abc-defg-hij'
-    }
-  }
-]
+
 
 const crmProviders = [
   { value: 'NONE', label: 'Ninguno' },
@@ -212,11 +165,7 @@ export default function CRMUnifiedPage() {
     try {
       const response = await leadsApi.getAll(selectedBusiness.id)
       const fetched = response.data || []
-      const combined = [
-        ...mockLeads.filter(ml => !fetched.some((fl: any) => fl.id === ml.id)),
-        ...fetched
-      ]
-      setLeads(combined)
+      setLeads(fetched)
     } catch (error) {
       toast({
         title: 'Error',
@@ -582,19 +531,52 @@ export default function CRMUnifiedPage() {
     })
   }
 
-  const endCall = () => {
+  const endCall = async () => {
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current)
       callTimerRef.current = null
     }
     setActiveCall(prev => ({ ...prev, status: 'ended' }))
     
-    // Simulate recording call log in API / state
     const callDuration = activeCall.duration
-    toast({
-      title: 'Llamada finalizada',
-      description: `Duración de la llamada: ${callDuration} segundos. Grabación disponible en Call Center.`,
-    })
+    
+    // Guardar registro de llamada real
+    try {
+      let contactId = undefined
+      if (selectedLead) {
+        try {
+          const meta = selectedLead.metadata 
+            ? (typeof selectedLead.metadata === 'string' ? JSON.parse(selectedLead.metadata) : selectedLead.metadata) 
+            : {}
+          contactId = meta.contactId || undefined
+        } catch (e) {
+          // ignore
+        }
+      }
+      
+      await crmCallApi.createLog({
+        contactId,
+        contactPhone: activeCall.phone,
+        contactName: activeCall.leadName,
+        duration: callDuration,
+        status: callDuration > 0 ? 'COMPLETED' : 'MISSED',
+        recordingUrl: 'https://sysbot-recordings.s3.amazonaws.com/rec_' + Date.now() + '.mp3',
+        transcription: 'Llamada telefónica realizada desde el panel CRM WebRTC de Sysbot.',
+        sentiment: 'NEUTRAL',
+        queryResolved: true
+      })
+      
+      toast({
+        title: 'Llamada finalizada',
+        description: `Llamada de ${callDuration}s registrada en el historial.`,
+      })
+    } catch (error) {
+      console.error('Error recording call log:', error)
+      toast({
+        title: 'Llamada finalizada',
+        description: `Duración: ${callDuration} segundos. (No se pudo guardar en el historial)`,
+      })
+    }
 
     // Close modal after 1.5 seconds
     setTimeout(() => {

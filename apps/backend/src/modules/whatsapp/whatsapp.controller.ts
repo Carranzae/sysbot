@@ -96,7 +96,10 @@ export class WhatsappController {
       // Forzar inicialización incluso si no está habilitado (para permitir que el usuario vea el QR)
       const result = await this.whatsappWebService.initializeClient(businessId, true);
       if (!result) {
-        throw new BadRequestException('No se pudo inicializar WhatsApp Web. Verifica la configuración.');
+        return {
+          success: true,
+          message: 'WhatsApp Web ya se esta inicializando. Espera unos segundos y vuelve a consultar el QR.',
+        };
       }
       return { success: true };
     } catch (error: any) {

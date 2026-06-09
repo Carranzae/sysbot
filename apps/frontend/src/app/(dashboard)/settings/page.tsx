@@ -40,11 +40,14 @@ import {
     Zap,
     Bot,
     Instagram,
-    Plus
+    Plus,
+    Database
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { useBusinessStore } from '@/store/business'
 import { motion, AnimatePresence } from 'framer-motion'
+import { PaymentGatewayConfig } from '@/components/payment/PaymentGatewayConfig'
+import { CRMIntegrationConfig } from '@/components/crm/CRMIntegrationConfig'
 
 const LANGUAGE_OPTIONS = [{ value: 'es', label: 'Español' }]
 const CURRENCY_OPTIONS = [{ value: 'PEN', label: 'Sol peruano (PEN)' }]
@@ -96,7 +99,7 @@ export default function BusinessSettingsPage() {
     const [telegramBotToken, setTelegramBotToken] = useState('')
     const [telegramConnected, setTelegramConnected] = useState(false)
     const [telegramSaving, setTelegramSaving] = useState(false)
-    const [activeTab, setActiveTab] = useState<'general' | 'integrations' | 'security' | 'billing' | 'apikeys' | 'team'>('general')
+    const [activeTab, setActiveTab] = useState<'general' | 'integrations' | 'security' | 'billing' | 'apikeys' | 'team' | 'crm'>('general')
     
     // helper to save AI parameters
     const handleSaveAiSettings = async () => {
@@ -695,6 +698,8 @@ export default function BusinessSettingsPage() {
             setActiveTab('billing')
         } else if (tab === 'integrations') {
             setActiveTab('integrations')
+        } else if (tab === 'crm') {
+            setActiveTab('crm')
         }
     }, [searchParams])
 
@@ -847,6 +852,18 @@ export default function BusinessSettingsPage() {
                     >
                         <CreditCard className="w-4 h-4" />
                         Facturación y Pagos
+                    </button>
+                    
+                    <button
+                        onClick={() => setActiveTab('crm')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-extrabold transition-all duration-200 text-left ${
+                            activeTab === 'crm'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                        <Database className="w-4 h-4" />
+                        Integración CRM
                     </button>
                     
                     <button
@@ -1497,73 +1514,20 @@ export default function BusinessSettingsPage() {
                                 transition={{ duration: 0.25 }}
                                 className="space-y-6"
                             >
-                                <Card className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs space-y-6">
-                                    <div>
-                                        <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-850 font-syst flex items-center gap-2">
-                                            <CreditCard className="h-5 w-5 text-blue-600" />
-                                            Pasarela de Pagos del CRM
-                                        </h3>
-                                        <p className="text-xs text-slate-500 mt-1">Configura las credenciales de Stripe/MercadoPago para recibir cobros directamente vinculados a tus chats y presupuestos.</p>
-                                    </div>
-                                    
-                                    <div className="space-y-4">
-                                        <div className="grid gap-4 md:grid-cols-2">
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="payment-email" className="text-xs font-bold text-slate-500">Correo para Cobros</Label>
-                                                <Input
-                                                    id="payment-email"
-                                                    type="email"
-                                                    placeholder="pagos@tunegocio.com"
-                                                    value={paymentForm.email}
-                                                    onChange={(e) => setPaymentForm(prev => ({ ...prev, email: e.target.value }))}
-                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
-                                                />
-                                            </div>
+                                <PaymentGatewayConfig businessId={businessId} />
+                            </motion.div>
+                        )}
 
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="payment-gateway" className="text-xs font-bold text-slate-500">Pasarela</Label>
-                                                <Select value={paymentForm.gateway} onValueChange={(value) => setPaymentForm(prev => ({ ...prev, gateway: value }))}>
-                                                    <SelectTrigger className="bg-white border-slate-200 text-xs h-9 rounded-xl focus:ring-blue-600 font-semibold">
-                                                        <SelectValue placeholder="Selecciona pasarela" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="stripe">Stripe (Oficial)</SelectItem>
-                                                        <SelectItem value="paypal">PayPal</SelectItem>
-                                                        <SelectItem value="mercadopago">MercadoPago</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="whatsapp-number" className="text-xs font-bold text-slate-500">Celular de Control de Pagos</Label>
-                                                <Input
-                                                    id="whatsapp-number"
-                                                    placeholder="+51999888777"
-                                                    value={paymentForm.whatsappNumber}
-                                                    onChange={(e) => setPaymentForm(prev => ({ ...prev, whatsappNumber: e.target.value }))}
-                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
-                                                />
-                                            </div>
-
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="webhook-url" className="text-xs font-bold text-slate-500">Webhook URL</Label>
-                                                <Input
-                                                    id="webhook-url"
-                                                    placeholder="https://tuapi.com/payments"
-                                                    value={paymentForm.webhookUrl}
-                                                    onChange={(e) => setPaymentForm(prev => ({ ...prev, webhookUrl: e.target.value }))}
-                                                    className="bg-white border-slate-200 text-xs h-9 rounded-xl focus-visible:ring-blue-600 font-medium"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="flex justify-end pt-2">
-                                            <Button onClick={handleSavePaymentSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-755 text-white font-extrabold text-xs h-10 rounded-xl px-5">
-                                                {saving ? 'Guardando...' : 'Guardar Pasarela'}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </Card>
+                        {activeTab === 'crm' && (
+                            <motion.div
+                                key="crm-pane"
+                                initial={{ opacity: 0, y: 15 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -15 }}
+                                transition={{ duration: 0.25 }}
+                                className="space-y-6"
+                            >
+                                <CRMIntegrationConfig businessId={businessId} />
                             </motion.div>
                         )}
 

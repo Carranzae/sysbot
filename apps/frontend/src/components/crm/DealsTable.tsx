@@ -44,6 +44,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { leadsApi } from '@/lib/api';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -56,6 +57,7 @@ interface Deal {
   contactId: string;
   contactName: string;
   contactEmail: string;
+  contactPhone: string;
   amount: number;
   currency: string;
   stage: 'LEAD' | 'QUALIFIED' | 'PROPOSAL' | 'NEGOTIATION' | 'CLOSED_WON' | 'CLOSED_LOST';
@@ -100,160 +102,7 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [form] = Form.useForm();
 
-  // Mock data - En producción vendría de la API
-  const mockDeals: Deal[] = [
-    {
-      id: '1',
-      name: 'Consultoría SEO - Tech Solutions',
-      contactId: '1',
-      contactName: 'Juan Pérez',
-      contactEmail: 'juan.perez@email.com',
-      amount: 5000,
-      currency: 'PEN',
-      stage: 'CLOSED_WON',
-      probability: 100,
-      expectedCloseDate: '2024-01-20T00:00:00Z',
-      actualCloseDate: '2024-01-18T15:30:00Z',
-      assignedTo: 'Ana García',
-      source: 'WHATSAPP',
-      description: 'Paquete completo de optimización SEO para sitio web corporativo',
-      tags: ['SEO', 'Consultoría', 'VIP'],
-      activities: [
-        {
-          id: '1',
-          type: 'CALL',
-          description: 'Llamada inicial con cliente',
-          createdAt: '2024-01-10T10:00:00Z',
-          createdBy: 'Ana García'
-        },
-        {
-          id: '2',
-          type: 'MEETING',
-          description: 'Reunión de presentación',
-          createdAt: '2024-01-12T14:00:00Z',
-          createdBy: 'Ana García'
-        },
-        {
-          id: '3',
-          type: 'PAYMENT',
-          description: 'Pago recibido - S/ 5,000',
-          createdAt: '2024-01-18T15:30:00Z',
-          createdBy: 'Sistema'
-        }
-      ],
-      createdAt: '2024-01-08T09:00:00Z',
-      updatedAt: '2024-01-18T15:30:00Z'
-    },
-    {
-      id: '2',
-      name: 'Marketing Digital - Marketing Digital LTDA',
-      contactId: '2',
-      contactName: 'María García',
-      contactEmail: 'maria.garcia@email.com',
-      amount: 3500,
-      currency: 'PEN',
-      stage: 'PROPOSAL',
-      probability: 75,
-      expectedCloseDate: '2024-01-25T00:00:00Z',
-      assignedTo: 'Carlos López',
-      source: 'INSTAGRAM',
-      description: 'Campaña completa de marketing digital para redes sociales',
-      tags: ['Marketing', 'Social Media', 'Propuesta'],
-      activities: [
-        {
-          id: '4',
-          type: 'EMAIL',
-          description: 'Envío de propuesta comercial',
-          createdAt: '2024-01-15T11:00:00Z',
-          createdBy: 'Carlos López'
-        }
-      ],
-      createdAt: '2024-01-12T10:30:00Z',
-      updatedAt: '2024-01-15T11:00:00Z'
-    },
-    {
-      id: '3',
-      name: 'Desarrollo Web - Consultoría ABC',
-      contactId: '3',
-      contactName: 'Carlos López',
-      contactEmail: 'carlos.lopez@email.com',
-      amount: 8000,
-      currency: 'PEN',
-      stage: 'NEGOTIATION',
-      probability: 60,
-      expectedCloseDate: '2024-02-01T00:00:00Z',
-      assignedTo: 'Ana García',
-      source: 'WEB',
-      description: 'Desarrollo de sitio web e-commerce con integración de pagos',
-      tags: ['Desarrollo', 'E-commerce', 'Negociación'],
-      activities: [
-        {
-          id: '5',
-          type: 'MEETING',
-          description: 'Reunión de negociación',
-          createdAt: '2024-01-14T16:00:00Z',
-          createdBy: 'Ana García'
-        }
-      ],
-      createdAt: '2024-01-10T14:00:00Z',
-      updatedAt: '2024-01-14T16:00:00Z'
-    },
-    {
-      id: '4',
-      name: 'Mantenimiento Sistema - StartUp Tech',
-      contactId: '5',
-      contactName: 'Roberto Silva',
-      contactEmail: 'roberto.silva@email.com',
-      amount: 1500,
-      currency: 'PEN',
-      stage: 'QUALIFIED',
-      probability: 40,
-      expectedCloseDate: '2024-01-30T00:00:00Z',
-      assignedTo: 'Carlos López',
-      source: 'MANUAL',
-      description: 'Servicio de mantenimiento mensual para sistema interno',
-      tags: ['Mantenimiento', 'Soporte', 'Mensual'],
-      activities: [
-        {
-          id: '6',
-          type: 'CALL',
-          description: 'Llamada de calificación',
-          createdAt: '2024-01-13T10:30:00Z',
-          createdBy: 'Carlos López'
-        }
-      ],
-      createdAt: '2024-01-11T09:00:00Z',
-      updatedAt: '2024-01-13T10:30:00Z'
-    },
-    {
-      id: '5',
-      name: 'Capacitación Equipo - Ana Martínez',
-      contactId: '4',
-      contactName: 'Ana Martínez',
-      contactEmail: 'ana.martinez@email.com',
-      amount: 2000,
-      currency: 'PEN',
-      stage: 'CLOSED_LOST',
-      probability: 0,
-      expectedCloseDate: '2023-12-20T00:00:00Z',
-      actualCloseDate: '2023-12-20T10:00:00Z',
-      assignedTo: 'Carlos López',
-      source: 'TELEGRAM',
-      description: 'Capacitación en uso de herramientas digitales',
-      tags: ['Capacitación', 'Perdido'],
-      activities: [
-        {
-          id: '7',
-          type: 'NOTE',
-          description: 'Cliente decidió no continuar',
-          createdAt: '2023-12-20T10:00:00Z',
-          createdBy: 'Carlos López'
-        }
-      ],
-      createdAt: '2023-11-20T14:00:00Z',
-      updatedAt: '2023-12-20T10:00:00Z'
-    }
-  ];
+
 
   useEffect(() => {
     loadDeals();
@@ -266,13 +115,61 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
   const loadDeals = async () => {
     setLoading(true);
     try {
-      // Simulación de carga desde API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setDeals(mockDeals);
+      const response = await leadsApi.getAll(businessId);
+      const data = response.data;
+      
+      const mapped = data.map((l: any) => {
+        const meta = l.metadata || {};
+        return {
+          id: l.id,
+          name: l.name || '',
+          contactId: meta.contactId || '',
+          contactName: meta.contactName || l.name || '',
+          contactEmail: l.email || meta.contactEmail || '',
+          contactPhone: l.phone || meta.contactPhone || '',
+          amount: Number(meta.amount || 0),
+          currency: meta.currency || 'PEN',
+          stage: meta.stage || mapStatusToStage(l.status),
+          probability: Number(meta.probability || 0),
+          expectedCloseDate: meta.expectedCloseDate || l.createdAt,
+          actualCloseDate: meta.actualCloseDate || undefined,
+          assignedTo: meta.assignedTo || 'Sin asignar',
+          source: l.source || 'SYSBOT',
+          description: l.notes || meta.description || '',
+          tags: meta.tags || [],
+          activities: meta.activities || [],
+          createdAt: l.createdAt,
+          updatedAt: l.updatedAt
+        };
+      });
+      setDeals(mapped);
     } catch (error) {
       message.error('Error al cargar negocios');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const mapStatusToStage = (status: string): string => {
+    switch (status) {
+      case 'NEW': return 'LEAD';
+      case 'QUALIFIED': return 'QUALIFIED';
+      case 'CONTACTED': return 'PROPOSAL';
+      case 'CONVERTED': return 'CLOSED_WON';
+      case 'LOST': return 'CLOSED_LOST';
+      default: return 'LEAD';
+    }
+  };
+
+  const mapStageToStatus = (stage: string): string => {
+    switch (stage) {
+      case 'LEAD': return 'NEW';
+      case 'QUALIFIED': return 'QUALIFIED';
+      case 'PROPOSAL':
+      case 'NEGOTIATION': return 'CONTACTED';
+      case 'CLOSED_WON': return 'CONVERTED';
+      case 'CLOSED_LOST': return 'LOST';
+      default: return 'NEW';
     }
   };
 
@@ -360,7 +257,10 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
 
   const handleEditDeal = (deal: Deal) => {
     setEditingDeal(deal);
-    form.setFieldsValue(deal);
+    form.setFieldsValue({
+      ...deal,
+      expectedCloseDate: deal.expectedCloseDate ? dayjs(deal.expectedCloseDate) : null
+    });
     setDealModalVisible(true);
   };
 
@@ -368,9 +268,14 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
     Modal.confirm({
       title: '¿Eliminar negocio?',
       content: `¿Estás seguro de que quieres eliminar el negocio "${deal.name}"?`,
-      onOk: () => {
-        setDeals(deals.filter(d => d.id !== deal.id));
-        message.success('Negocio eliminado');
+      onOk: async () => {
+        try {
+          await leadsApi.delete(deal.id);
+          message.success('Negocio eliminado');
+          loadDeals();
+        } catch (error) {
+          message.error('Error al eliminar negocio');
+        }
       }
     });
   };
@@ -382,30 +287,49 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
 
   const handleSaveDeal = async (values: any) => {
     try {
+      const stage = values.stage || 'LEAD';
+      const status = mapStageToStatus(stage);
+      
+      const meta = {
+        contactId: editingDeal ? editingDeal.contactId : '',
+        contactName: values.contactName || '',
+        contactEmail: values.contactEmail || '',
+        contactPhone: values.contactPhone || '',
+        amount: values.amount || 0,
+        currency: values.currency || 'PEN',
+        stage: stage,
+        probability: values.probability || 0,
+        expectedCloseDate: values.expectedCloseDate ? (typeof values.expectedCloseDate.toISOString === 'function' ? values.expectedCloseDate.toISOString() : values.expectedCloseDate) : new Date().toISOString(),
+        assignedTo: values.assignedTo || 'Sin asignar',
+        tags: editingDeal ? editingDeal.tags : [],
+        activities: editingDeal ? editingDeal.activities : [],
+        description: values.description || ''
+      };
+
+      const payload = {
+        name: values.name,
+        phone: values.contactPhone,
+        email: values.contactEmail || '',
+        source: editingDeal ? editingDeal.source : 'MANUAL',
+        status: status,
+        notes: values.description,
+        metadata: meta
+      };
+
       if (editingDeal) {
-        // Editar negocio existente
-        setDeals(deals.map(d => 
-          d.id === editingDeal.id ? { ...d, ...values, updatedAt: new Date().toISOString() } : d
-        ));
+        await leadsApi.update(editingDeal.id, payload);
         message.success('Negocio actualizado');
       } else {
-        // Crear nuevo negocio
-        const newDeal: Deal = {
-          ...values,
-          id: Date.now().toString(),
-          activities: [],
-          probability: values.probability || 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        setDeals([...deals, newDeal]);
+        await leadsApi.create(businessId, payload);
         message.success('Negocio creado');
       }
+      
+      await loadDeals();
       setDealModalVisible(false);
       setEditingDeal(null);
       form.resetFields();
-    } catch (error) {
-      message.error('Error al guardar negocio');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Error al guardar negocio');
     }
   };
 
@@ -435,6 +359,9 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
           </div>
           <div style={{ fontSize: '11px', color: '#666' }}>
             {record.contactEmail}
+          </div>
+          <div style={{ fontSize: '11px', color: '#666' }}>
+            {record.contactPhone}
           </div>
         </div>
       )
@@ -773,6 +700,27 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
               </Form.Item>
             </Col>
           </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="contactEmail"
+                label="Email del Contacto"
+                rules={[{ type: 'email', message: 'Ingresa un email valido' }]}
+              >
+                <Input placeholder="cliente@correo.com" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="contactPhone"
+                label="Telefono del Contacto"
+                rules={[{ required: true, message: 'El telefono del contacto es requerido' }]}
+              >
+                <Input placeholder="+51 987 654 321" />
+              </Form.Item>
+            </Col>
+          </Row>
           
           <Row gutter={16}>
             <Col span={8}>
@@ -909,6 +857,7 @@ export const DealsTable: React.FC<DealsTableProps> = ({ businessId }) => {
                 <div>
                   <Text strong>Contacto:</Text> {selectedDeal.contactName}<br />
                   <Text strong>Email:</Text> {selectedDeal.contactEmail}<br />
+                  <Text strong>Telefono:</Text> {selectedDeal.contactPhone}<br />
                   <Text strong>Etapa:</Text> <Tag color={getStageColor(selectedDeal.stage)}>
                     {getStageText(selectedDeal.stage)}
                   </Tag><br />

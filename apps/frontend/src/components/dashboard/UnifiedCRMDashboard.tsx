@@ -48,15 +48,18 @@ import dayjs from 'dayjs';
 import ContactsTable from '../crm/ContactsTable';
 import DealsTable from '../crm/DealsTable';
 import PaymentsTable from '../payment/PaymentsTable';
+import { useBusinessStore } from '@/store/business';
+import { contactsApi, leadsApi, paymentsApi } from '@/lib/api';
 
 const { Title } = Typography;
 const { Search: AntSearch } = Input;
 const { TabPane } = Tabs;
 
 export default function UnifiedCRMDashboard() {
+  const selectedBusiness = useBusinessStore((state) => state.selectedBusiness);
+  const businessId = selectedBusiness?.id || '';
   const [activeTab, setActiveTab] = useState('contacts');
   const [loading, setLoading] = useState(false);
-  const [businessId] = useState('demo-business-123');
 
   // Estadísticas combinadas del CRM
   const [crmStats, setCrmStats] = useState({
@@ -84,38 +87,65 @@ export default function UnifiedCRMDashboard() {
 
   useEffect(() => {
     loadCRMStats();
-  }, []);
+  }, [businessId]);
 
   const loadCRMStats = async () => {
+    if (!businessId) return;
     setLoading(true);
     try {
-      // Simular carga de estadísticas
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      const [contactsRes, leadsRes, paymentsRes] = await Promise.all([
+        contactsApi.getAll(businessId),
+        leadsApi.getAll(businessId),
+        paymentsApi.getAll(businessId)
+      ]);
+
+      const contacts = contactsRes.data || [];
+      const leads = leadsRes.data || [];
+      const payments = paymentsRes.data.payments || [];
+
+      // Calculate stats
+      const contactsTotal = contacts.length;
+      const contactsCustomers = contacts.filter((c: any) => (c.metadata?.status || c.status) === 'CUSTOMER').length;
+      const contactsLeads = contacts.filter((c: any) => (c.metadata?.status || c.status) === 'LEAD').length;
+      const contactsActive = contacts.filter((c: any) => (c.metadata?.status || c.status) !== 'CHURNED').length;
+
+      const dealsTotal = leads.length;
+      const dealsWon = leads.filter((l: any) => l.status === 'CONVERTED' || l.metadata?.stage === 'CLOSED_WON').length;
+      const dealsInProgress = leads.filter((l: any) => !['CONVERTED', 'LOST'].includes(l.status) && !['CLOSED_WON', 'CLOSED_LOST'].includes(l.metadata?.stage)).length;
+      const dealsLost = leads.filter((l: any) => l.status === 'LOST' || l.metadata?.stage === 'CLOSED_LOST').length;
+      const dealsTotalValue = leads.reduce((sum: number, l: any) => sum + Number(l.metadata?.amount || 0), 0);
+
+      const paymentsTotal = payments.length;
+      const paymentsCompleted = payments.filter((p: any) => p.status === 'COMPLETED').length;
+      const paymentsPending = payments.filter((p: any) => p.status === 'PENDING').length;
+      const paymentsFailed = payments.filter((p: any) => p.status === 'FAILED').length;
+      const paymentsTotalAmount = payments.filter((p: any) => p.status === 'COMPLETED').reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
       setCrmStats({
         contacts: {
-          total: 156,
-          customers: 89,
-          leads: 45,
-          active: 67
+          total: contactsTotal,
+          customers: contactsCustomers,
+          leads: contactsLeads,
+          active: contactsActive
         },
         deals: {
-          total: 78,
-          won: 34,
-          inProgress: 28,
-          lost: 16,
-          totalValue: 125000
+          total: dealsTotal,
+          won: dealsWon,
+          inProgress: dealsInProgress,
+          lost: dealsLost,
+          totalValue: dealsTotalValue
         },
         payments: {
-          total: 234,
-          completed: 189,
-          pending: 35,
-          failed: 10,
-          totalAmount: 45680
+          total: paymentsTotal,
+          completed: paymentsCompleted,
+          pending: paymentsPending,
+          failed: paymentsFailed,
+          totalAmount: paymentsTotalAmount
         }
       });
     } catch (error) {
-      message.error('Error al cargar estadísticas del CRM');
+      console.error(error);
+      message.error('Error al cargar estadísticas reales del CRM');
     } finally {
       setLoading(false);
     }

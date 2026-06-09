@@ -1,8 +1,0 @@
-[build]
-  command = "pnpm --filter @syst/frontend build"
-  publish = "apps/frontend/.next"
-
-[build.environment]
-  NETLIFY_USE_PNPM = "true"
-  NODE_VERSION = "20"
-  NODE_OPTIONS = "--max-old-space-size=4096"

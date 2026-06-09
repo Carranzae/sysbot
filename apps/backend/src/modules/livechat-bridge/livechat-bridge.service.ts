@@ -42,6 +42,14 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
 
       const contacts = await this.prisma.contact.findMany({
         where: { businessId },
+        select: {
+          id: true,
+          phone: true,
+          name: true,
+          source: true,
+          metadata: true,
+          updatedAt: true,
+        },
         orderBy: { updatedAt: 'desc' },
       });
 

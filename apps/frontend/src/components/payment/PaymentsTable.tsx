@@ -46,6 +46,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { paymentsApi } from '@/lib/api';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -58,7 +59,7 @@ interface Payment {
   customerPhone: string;
   amount: number;
   currency: string;
-  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | 'EXPIRED';
   gateway: 'STRIPE' | 'IZIPAY' | 'YAPE' | 'PLIN';
   gatewayPaymentId: string;
   description: string;
@@ -94,111 +95,7 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [form] = Form.useForm();
 
-  // Mock data - En producción vendría de la API
-  const mockPayments: Payment[] = [
-    {
-      id: '1',
-      customerName: 'Juan Pérez',
-      customerEmail: 'juan.perez@email.com',
-      customerPhone: '+51 987 654 321',
-      amount: 500,
-      currency: 'PEN',
-      status: 'COMPLETED',
-      gateway: 'STRIPE',
-      gatewayPaymentId: 'pi_1234567890',
-      description: 'Consultoría SEO - Primera cuota',
-      paymentUrl: 'https://checkout.stripe.com/pay/123',
-      createdAt: '2024-01-15T10:30:00Z',
-      completedAt: '2024-01-15T10:35:00Z',
-      metadata: {
-        dealId: '1',
-        businessId: businessId,
-        source: 'WHATSAPP'
-      },
-      businessId: businessId
-    },
-    {
-      id: '2',
-      customerName: 'María García',
-      customerEmail: 'maria.garcia@email.com',
-      customerPhone: '+51 123 456 789',
-      amount: 200,
-      currency: 'PEN',
-      status: 'PENDING',
-      gateway: 'IZIPAY',
-      gatewayPaymentId: 'izipay_1234567890',
-      description: 'Marketing Digital - Propuesta',
-      paymentUrl: 'https://payment.izipay.pe/123',
-      qrCode: 'data:image/png;base64,iVBORw0KGgoAAAANS...',
-      createdAt: '2024-01-15T09:15:00Z',
-      expiresAt: '2024-01-15T11:15:00Z',
-      metadata: {
-        dealId: '2',
-        businessId: businessId,
-        source: 'INSTAGRAM'
-      },
-      businessId: businessId
-    },
-    {
-      id: '3',
-      customerName: 'Carlos López',
-      customerEmail: 'carlos.lopez@email.com',
-      customerPhone: '+51 456 789 012',
-      amount: 800,
-      currency: 'PEN',
-      status: 'FAILED',
-      gateway: 'STRIPE',
-      gatewayPaymentId: 'pi_2345678901',
-      description: 'Desarrollo Web - Anticipo',
-      createdAt: '2024-01-14T16:45:00Z',
-      metadata: {
-        dealId: '3',
-        businessId: businessId,
-        source: 'WEB'
-      },
-      businessId: businessId
-    },
-    {
-      id: '4',
-      customerName: 'Ana Martínez',
-      customerEmail: 'ana.martinez@email.com',
-      customerPhone: '+51 789 012 345',
-      amount: 1500,
-      currency: 'PEN',
-      status: 'COMPLETED',
-      gateway: 'YAPE',
-      gatewayPaymentId: 'yape_3456789012',
-      description: 'Capacitación Equipo - Pago completo',
-      createdAt: '2024-01-13T14:20:00Z',
-      completedAt: '2024-01-13T14:22:00Z',
-      metadata: {
-        dealId: '4',
-        businessId: businessId,
-        source: 'TELEGRAM'
-      },
-      businessId: businessId
-    },
-    {
-      id: '5',
-      customerName: 'Roberto Silva',
-      customerEmail: 'roberto.silva@email.com',
-      customerPhone: '+51 234 567 890',
-      amount: 3500,
-      currency: 'PEN',
-      status: 'EXPIRED',
-      gateway: 'IZIPAY',
-      gatewayPaymentId: 'izipay_4567890123',
-      description: 'Mantenimiento Sistema - Mensual',
-      createdAt: '2024-01-10T11:00:00Z',
-      expiresAt: '2024-01-12T11:00:00Z',
-      metadata: {
-        dealId: '5',
-        businessId: businessId,
-        source: 'MANUAL'
-      },
-      businessId: businessId
-    }
-  ];
+
 
   useEffect(() => {
     loadPayments();
@@ -223,9 +120,33 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
   const loadPayments = async () => {
     setLoading(true);
     try {
-      // Simulación de carga desde API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setPayments(mockPayments);
+      const response = await paymentsApi.getAll(businessId);
+      const data = response.data.payments || [];
+      
+      const mapped = data.map((p: any) => {
+        const meta = p.metadata || {};
+        return {
+          id: p.id,
+          customerName: p.customerName || meta.customerName || 'Cliente Anónimo',
+          customerEmail: p.customerEmail || '',
+          customerPhone: p.customerPhone || '',
+          amount: Number(p.amount || 0),
+          currency: p.currency || 'PEN',
+          status: p.status || 'PENDING',
+          gateway: p.gateway || 'STRIPE',
+          gatewayPaymentId: p.gatewayPaymentId || '',
+          description: p.description || meta.description || 'Cobro de servicio',
+          paymentUrl: p.paymentUrl || undefined,
+          qrCode: p.qrCode || undefined,
+          createdAt: p.createdAt,
+          expiresAt: p.expiresAt || undefined,
+          completedAt: p.status === 'COMPLETED' ? p.updatedAt : undefined,
+          refundedAt: p.status === 'REFUNDED' ? p.updatedAt : undefined,
+          metadata: meta,
+          businessId: p.businessId
+        };
+      });
+      setPayments(mapped);
     } catch (error) {
       message.error('Error al cargar pagos');
     } finally {
@@ -271,9 +192,11 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'COMPLETED': return 'success';
+      case 'PROCESSING': return 'processing';
       case 'PENDING': return 'processing';
       case 'FAILED': return 'error';
       case 'REFUNDED': return 'warning';
+      case 'CANCELLED': return 'default';
       case 'EXPIRED': return 'default';
       default: return 'default';
     }
@@ -282,9 +205,11 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'COMPLETED': return 'Completado';
+      case 'PROCESSING': return 'Procesando';
       case 'PENDING': return 'Pendiente';
       case 'FAILED': return 'Fallido';
       case 'REFUNDED': return 'Reembolsado';
+      case 'CANCELLED': return 'Cancelado';
       case 'EXPIRED': return 'Expirado';
       default: return status;
     }
@@ -293,9 +218,11 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'COMPLETED': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+      case 'PROCESSING': return <ClockCircleOutlined style={{ color: '#1890ff' }} />;
       case 'PENDING': return <ClockCircleOutlined style={{ color: '#1890ff' }} />;
       case 'FAILED': return <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />;
       case 'REFUNDED': return <DollarCircleOutlined style={{ color: '#fa8c16' }} />;
+      case 'CANCELLED': return <ExclamationCircleOutlined style={{ color: '#8c8c8c' }} />;
       case 'EXPIRED': return <ExclamationCircleOutlined style={{ color: '#8c8c8c' }} />;
       default: return <ClockCircleOutlined />;
     }
@@ -326,16 +253,21 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
     setDetailModalVisible(true);
   };
 
-  const handleResendPayment = async (payment: Payment) => {
+  const handleVerifyPayment = async (payment: Payment) => {
     try {
-      message.loading('Reenviando pago...', 0);
-      // Simulación de reenvío
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      message.loading('Verificando pago...', 0);
+      const response = await paymentsApi.verify(payment.id);
       message.destroy();
-      message.success('Pago reenviado exitosamente');
-    } catch (error) {
+      const { result } = response.data;
+      if (result && result.status === 'COMPLETED') {
+        message.success('El pago ha sido verificado y completado exitosamente.');
+      } else {
+        message.info(`El pago sigue pendiente o falló (Estado: ${result?.status || 'PENDING'})`);
+      }
+      loadPayments();
+    } catch (error: any) {
       message.destroy();
-      message.error('Error al reenviar pago');
+      message.error(error.response?.data?.message || 'Error al verificar el pago');
     }
   };
 
@@ -346,21 +278,21 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
       onOk: async () => {
         try {
           message.loading('Procesando reembolso...', 0);
-          // Simulación de reembolso
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          // Actualizar estado
-          setPayments(payments.map(p => 
-            p.id === payment.id 
-              ? { ...p, status: 'REFUNDED' as const, refundedAt: new Date().toISOString() }
-              : p
-          ));
-          
+          const response = await paymentsApi.refund(payment.id, {
+            amount: payment.amount,
+            reason: 'requested_from_dashboard'
+          });
+
           message.destroy();
-          message.success('Reembolso procesado exitosamente');
-        } catch (error) {
+          if (response.data?.result?.status === 'REFUNDED') {
+            message.success('Reembolso procesado exitosamente');
+          } else {
+            message.info('Reembolso enviado al gateway. El estado quedo en procesamiento.');
+          }
+          loadPayments();
+        } catch (error: any) {
           message.destroy();
-          message.error('Error al procesar reembolso');
+          message.error(error.response?.data?.message || 'Error al procesar reembolso');
         }
       }
     });
@@ -419,8 +351,10 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
       ),
       filters: [
         { text: 'Completado', value: 'COMPLETED' },
+        { text: 'Procesando', value: 'PROCESSING' },
         { text: 'Pendiente', value: 'PENDING' },
         { text: 'Fallido', value: 'FAILED' },
+        { text: 'Cancelado', value: 'CANCELLED' },
         { text: 'Reembolsado', value: 'REFUNDED' },
         { text: 'Expirado', value: 'EXPIRED' }
       ],
@@ -477,10 +411,10 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
               },
               ...(record.status === 'PENDING' ? [
                 {
-                  key: 'resend',
-                  icon: <FileTextOutlined />,
-                  label: 'Reenviar',
-                  onClick: () => handleResendPayment(record)
+                  key: 'verify',
+                  icon: <CheckCircleOutlined />,
+                  label: 'Verificar Pago',
+                  onClick: () => handleVerifyPayment(record)
                 }
               ] : []),
               ...(record.status === 'COMPLETED' ? [
@@ -597,8 +531,10 @@ export const PaymentsTable: React.FC<PaymentsTableProps> = ({ businessId }) => {
               style={{ width: '100%' }}
             >
               <Option value="COMPLETED">Completado</Option>
+              <Option value="PROCESSING">Procesando</Option>
               <Option value="PENDING">Pendiente</Option>
               <Option value="FAILED">Fallido</Option>
+              <Option value="CANCELLED">Cancelado</Option>
               <Option value="REFUNDED">Reembolsado</Option>
               <Option value="EXPIRED">Expirado</Option>
             </Select>

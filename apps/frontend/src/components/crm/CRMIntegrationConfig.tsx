@@ -40,6 +40,7 @@ import {
   GlobalOutlined,
   DatabaseOutlined
 } from '@ant-design/icons';
+import { crmApi } from '@/lib/api';
 
 const { Title, Text, Paragraph } = Typography;
 const { Step } = Steps;
@@ -64,8 +65,8 @@ interface CRMConfig {
   status: 'connected' | 'disconnected' | 'error';
   lastSync?: Date;
   syncStats?: {
-    contacts: number;
-    deals: number;
+    contacts?: number;
+    deals?: number;
     lastSyncAt: Date;
   };
 }
@@ -83,8 +84,7 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [configModalVisible, setConfigModalVisible] = useState(false);
 
-  // Mock data - En producción vendría de la API
-  const mockCRMs = [
+  const crmProviderCatalog = [
     {
       provider: 'HUBSPOT',
       name: 'HubSpot',
@@ -136,17 +136,38 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
   }, [businessId]);
 
   const loadCRMConfigs = async () => {
+    setLoading(true);
     try {
-      // Simulación de carga de configuraciones
-      const configs = mockCRMs.map(crm => ({
-        ...crm,
-        isActive: false,
-        status: 'disconnected' as const,
-        config: {}
-      }));
+      const response = await crmApi.getConnection(businessId);
+      const connection = response.data;
+      
+      const configs = crmProviderCatalog.map(crm => {
+        const isCurrent = connection.provider === crm.provider;
+        const isActive = isCurrent && connection.isActive;
+        const configData = isCurrent ? {
+          accessToken: connection.accessToken || '',
+          refreshToken: connection.refreshToken || '',
+          apiKey: connection.apiKey || '',
+          apiSecret: connection.apiSecret || '',
+          baseUrl: connection.baseUrl || '',
+          config: connection.config || {}
+        } : {};
+        
+        return {
+          ...crm,
+          isActive,
+          status: (isCurrent && connection.isConnected) ? ('connected' as const) : ('disconnected' as const),
+          config: configData,
+          syncStats: (isCurrent && connection.lastSyncAt) ? {
+            lastSyncAt: new Date(connection.lastSyncAt)
+          } : undefined
+        };
+      });
       setCrmConfigs(configs);
     } catch (error) {
       message.error('Error al cargar configuraciones de CRM');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -154,11 +175,11 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
     setSelectedCRM(provider);
     setConfigModalVisible(true);
     
-    const crm = mockCRMs.find(c => c.provider === provider);
+    const crm = crmConfigs.find(c => c.provider === provider);
     if (crm) {
       form.setFieldsValue({
         provider: crm.provider,
-        isActive: false,
+        isActive: crm.isActive,
         ...crm.config
       });
     }
@@ -167,24 +188,29 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
   const handleConfigSave = async (values: any) => {
     setLoading(true);
     try {
-      // Simulación de guardado
-      const updatedConfigs = crmConfigs.map(config => 
-        config.provider === values.provider 
-          ? { ...config, ...values, status: 'disconnected' as const }
-          : config
-      );
+      const { provider, ...config } = values;
       
-      setCrmConfigs(updatedConfigs);
+      await crmApi.createConnection(businessId, {
+        provider,
+        apiKey: config.apiKey,
+        apiSecret: config.apiSecret,
+        accessToken: config.accessToken,
+        refreshToken: config.refreshToken,
+        baseUrl: config.baseUrl,
+        config: config.config || {},
+        syncEnabled: true,
+        syncDirection: 'BIDIRECTIONAL'
+      });
+      
+      await loadCRMConfigs();
       setConfigModalVisible(false);
       
       notification.success({
         message: 'Configuración guardada',
-        description: `La configuración de ${values.provider} ha sido guardada exitosamente.`
+        description: `La configuración de ${provider} ha sido guardada exitosamente.`
       });
-      
-      onConfigUpdate?.(updatedConfigs);
-    } catch (error) {
-      message.error('Error al guardar la configuración');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Error al guardar la configuración');
     } finally {
       setLoading(false);
     }
@@ -193,34 +219,23 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
   const handleTestConnection = async (provider: string) => {
     setTesting(true);
     try {
-      // Simulación de prueba de conexión
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const response = await crmApi.testConnection(businessId);
+      const { success, message: resMessage } = response.data;
       
-      const updatedConfigs = crmConfigs.map(config => 
-        config.provider === provider 
-          ? { 
-              ...config, 
-              status: 'connected' as const, 
-              lastSync: new Date(),
-              syncStats: {
-                contacts: Math.floor(Math.random() * 1000),
-                deals: Math.floor(Math.random() * 500),
-                lastSyncAt: new Date()
-              }
-            }
-          : config
-      );
+      if (!success) {
+        throw new Error(resMessage || `No se pudo conectar con ${provider}.`);
+      }
       
-      setCrmConfigs(updatedConfigs);
+      await loadCRMConfigs();
       
       notification.success({
         message: 'Conexión exitosa',
-        description: `La conexión con ${provider} ha sido establecida correctamente.`
+        description: resMessage || `La conexión con ${provider} ha sido establecida correctamente.`
       });
-    } catch (error) {
+    } catch (error: any) {
       notification.error({
         message: 'Error de conexión',
-        description: `No se pudo establecer conexión con ${provider}.`
+        description: error.message || `No se pudo establecer conexión con ${provider}.`
       });
     } finally {
       setTesting(false);
@@ -230,30 +245,21 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
   const handleSyncData = async (provider: string) => {
     setSyncing(true);
     try {
-      // Simulación de sincronización
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      const response = await crmApi.triggerSync(businessId);
+      const { success, message: resMessage, synced } = response.data;
       
-      const updatedConfigs = crmConfigs.map(config => 
-        config.provider === provider 
-          ? { 
-              ...config, 
-              syncStats: {
-                contacts: (config.syncStats?.contacts || 0) + Math.floor(Math.random() * 50),
-                deals: (config.syncStats?.deals || 0) + Math.floor(Math.random() * 25),
-                lastSyncAt: new Date()
-              }
-            }
-          : config
-      );
+      if (!success) {
+        throw new Error(resMessage || 'Error al sincronizar datos');
+      }
       
-      setCrmConfigs(updatedConfigs);
+      await loadCRMConfigs();
       
       notification.success({
         message: 'Sincronización completada',
-        description: `Los datos de ${provider} han sido sincronizados exitosamente.`
+        description: `Sincronizados: ${synced?.contacts || 0} contactos y ${synced?.leads || 0} oportunidades.`
       });
-    } catch (error) {
-      message.error('Error al sincronizar datos');
+    } catch (error: any) {
+      message.error(error.message || 'Error al sincronizar datos');
     } finally {
       setSyncing(false);
     }
@@ -261,21 +267,18 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
 
   const handleToggleCRM = async (provider: string, isActive: boolean) => {
     try {
-      const updatedConfigs = crmConfigs.map(config => 
-        config.provider === provider 
-          ? { ...config, isActive }
-          : config
-      );
+      await crmApi.updateConnection(businessId, {
+        provider,
+        isActive
+      });
       
-      setCrmConfigs(updatedConfigs);
+      await loadCRMConfigs();
       
       message.success(
         isActive 
           ? `${provider} ha sido activado` 
           : `${provider} ha sido desactivado`
       );
-      
-      onConfigUpdate?.(updatedConfigs);
     } catch (error) {
       message.error('Error al actualizar el estado del CRM');
     }
@@ -658,7 +661,7 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
       />
 
       <Row gutter={[16, 16]}>
-        {mockCRMs.map((crm) => {
+        {crmProviderCatalog.map((crm) => {
           const config = crmConfigs.find(c => c.provider === crm.provider);
           
           return (
@@ -741,16 +744,20 @@ export const CRMIntegrationConfig: React.FC<CRMIntegrationConfigProps> = ({
                       {config?.syncStats && (
                         <div style={{ marginBottom: '8px' }}>
                           <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                            <div>
-                              <Text type="secondary" style={{ fontSize: '12px' }}>
-                                <TeamOutlined /> Contactos: {config.syncStats.contacts}
-                              </Text>
-                            </div>
-                            <div>
-                              <Text type="secondary" style={{ fontSize: '12px' }}>
-                                <DatabaseOutlined /> Negocios: {config.syncStats.deals}
-                              </Text>
-                            </div>
+                            {typeof config.syncStats.contacts === 'number' && (
+                              <div>
+                                <Text type="secondary" style={{ fontSize: '12px' }}>
+                                  <TeamOutlined /> Contactos: {config.syncStats.contacts}
+                                </Text>
+                              </div>
+                            )}
+                            {typeof config.syncStats.deals === 'number' && (
+                              <div>
+                                <Text type="secondary" style={{ fontSize: '12px' }}>
+                                  <DatabaseOutlined /> Negocios: {config.syncStats.deals}
+                                </Text>
+                              </div>
+                            )}
                             <div>
                               <Text type="secondary" style={{ fontSize: '12px' }}>
                                 Última sincronización: {config.syncStats.lastSyncAt.toLocaleString()}

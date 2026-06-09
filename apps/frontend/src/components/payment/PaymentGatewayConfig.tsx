@@ -33,6 +33,7 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined
 } from '@ant-design/icons';
+import { businessApi, paymentsApi } from '@/lib/api';
 
 const { Title, Text, Paragraph } = Typography;
 const { Step } = Steps;
@@ -70,8 +71,7 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [configModalVisible, setConfigModalVisible] = useState(false);
 
-  // Mock data - En producción vendría de la API
-  const mockGateways = [
+  const gatewayCatalog = [
     {
       provider: 'STRIPE',
       name: 'Stripe',
@@ -101,17 +101,26 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
   }, [businessId]);
 
   const loadGatewayConfigs = async () => {
+    setLoading(true);
     try {
-      // Simulación de carga de configuraciones
-      const configs = mockGateways.map(gateway => ({
-        ...gateway,
-        isActive: false,
-        status: 'disconnected' as const,
-        config: {}
-      }));
+      const response = await businessApi.getPaymentSettings(businessId);
+      const settings = response.data;
+      
+      const configs = gatewayCatalog.map(gateway => {
+        const isActive = settings.gateway === gateway.provider;
+        const configData = isActive ? (settings.config || {}) : {};
+        return {
+          ...gateway,
+          isActive,
+          status: isActive ? ('connected' as const) : ('disconnected' as const),
+          config: configData
+        };
+      });
       setGatewayConfigs(configs);
     } catch (error) {
       message.error('Error al cargar configuraciones de gateways');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -119,11 +128,11 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
     setSelectedGateway(provider);
     setConfigModalVisible(true);
     
-    const gateway = mockGateways.find(g => g.provider === provider);
+    const gateway = gatewayConfigs.find(g => g.provider === provider);
     if (gateway) {
       form.setFieldsValue({
         provider: gateway.provider,
-        isActive: false,
+        isActive: gateway.isActive,
         ...gateway.config
       });
     }
@@ -132,11 +141,17 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
   const handleConfigSave = async (values: any) => {
     setLoading(true);
     try {
-      // Simulación de guardado
-      const updatedConfigs = gatewayConfigs.map(config => 
-        config.provider === values.provider 
-          ? { ...config, ...values, status: 'disconnected' as const }
-          : config
+      const { provider, ...config } = values;
+      
+      await businessApi.updatePaymentSettings(businessId, {
+        gateway: provider,
+        config
+      });
+
+      const updatedConfigs = gatewayConfigs.map(item => 
+        item.provider === provider 
+          ? { ...item, config, status: 'disconnected' as const, isActive: true }
+          : { ...item, isActive: false }
       );
       
       setGatewayConfigs(updatedConfigs);
@@ -144,12 +159,12 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
       
       notification.success({
         message: 'Configuración guardada',
-        description: `La configuración de ${values.provider} ha sido guardada exitosamente.`
+        description: `La configuración de ${provider} ha sido guardada exitosamente.`
       });
       
       onConfigUpdate?.(updatedConfigs);
-    } catch (error) {
-      message.error('Error al guardar la configuración');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Error al guardar la configuración');
     } finally {
       setLoading(false);
     }
@@ -158,8 +173,17 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
   const handleTestConnection = async (provider: string) => {
     setTesting(true);
     try {
-      // Simulación de prueba de conexión
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const gateway = gatewayConfigs.find(g => g.provider === provider);
+      if (!gateway || !gateway.config || Object.keys(gateway.config).length === 0) {
+        throw new Error('Debe guardar la configuración antes de probar la conexión.');
+      }
+      
+      const response = await paymentsApi.testGateway(businessId, provider);
+      const { success, message: resMessage } = response.data;
+      
+      if (!success) {
+        throw new Error(resMessage || `No se pudo establecer conexión con ${provider}.`);
+      }
       
       const updatedConfigs = gatewayConfigs.map(config => 
         config.provider === provider 
@@ -171,12 +195,19 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
       
       notification.success({
         message: 'Conexión exitosa',
-        description: `La conexión con ${provider} ha sido establecida correctamente.`
+        description: resMessage || `La conexión con ${provider} ha sido establecida correctamente.`
       });
-    } catch (error) {
+    } catch (error: any) {
+      const updatedConfigs = gatewayConfigs.map(config => 
+        config.provider === provider 
+          ? { ...config, status: 'error' as const, lastTest: new Date() }
+          : config
+      );
+      setGatewayConfigs(updatedConfigs);
+      
       notification.error({
         message: 'Error de conexión',
-        description: `No se pudo establecer conexión con ${provider}.`
+        description: error.message || `No se pudo establecer conexión con ${provider}.`
       });
     } finally {
       setTesting(false);
@@ -185,10 +216,14 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
 
   const handleToggleGateway = async (provider: string, isActive: boolean) => {
     try {
+      await businessApi.updatePaymentSettings(businessId, {
+        gateway: isActive ? provider : 'NONE'
+      });
+      
       const updatedConfigs = gatewayConfigs.map(config => 
         config.provider === provider 
           ? { ...config, isActive }
-          : config
+          : { ...config, isActive: isActive ? false : config.isActive }
       );
       
       setGatewayConfigs(updatedConfigs);
@@ -383,7 +418,7 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
       />
 
       <Row gutter={[16, 16]}>
-        {mockGateways.map((gateway) => {
+        {gatewayCatalog.map((gateway) => {
           const config = gatewayConfigs.find(c => c.provider === gateway.provider);
           
           return (
@@ -405,7 +440,7 @@ export const PaymentGatewayConfig: React.FC<PaymentGatewayConfigProps> = ({
                     icon={<PlayCircleOutlined />}
                     onClick={() => handleTestConnection(gateway.provider)}
                     loading={testing}
-                    disabled={!config || config.status !== 'disconnected'}
+                    disabled={!config || Object.keys(config.config || {}).length === 0}
                   >
                     Probar
                   </Button>,

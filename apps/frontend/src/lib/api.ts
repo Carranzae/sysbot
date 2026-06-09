@@ -105,6 +105,7 @@ export const contactsApi = {
       }
     ),
   update: (id: string, data: any) => api.patch(`/contacts/${id}`, data),
+  delete: (id: string) => api.delete(`/contacts/${id}`),
 }
 
 export const campaignsApi = {
@@ -175,6 +176,21 @@ export const leadsApi = {
   getAll: (businessId: string) => api.get(`/leads?businessId=${businessId}`),
   create: (businessId: string, data: any) => api.post(`/leads?businessId=${businessId}`, data),
   update: (id: string, data: any) => api.patch(`/leads/${id}`, data),
+  delete: (id: string) => api.delete(`/leads/${id}`),
+}
+
+export const paymentsApi = {
+  getAll: (businessId: string) => api.get(`/payments/automation/business/${businessId}`),
+  create: (data: any) => api.post('/payments/automation', data),
+  verify: (paymentId: string) => api.get(`/payments/automation/verify/${paymentId}`),
+  refund: (paymentId: string, data?: { amount?: number; reason?: string }) =>
+    api.post(`/payments/automation/${paymentId}/refund`, data || {}),
+  getStats: (businessId: string, startDate?: string, endDate?: string) =>
+    api.get(`/payments/automation/business/${businessId}/stats`, {
+      params: { startDate, endDate },
+    }),
+  testGateway: (businessId: string, gateway: string) =>
+    api.post(`/payments/automation/business/${businessId}/test-gateway`, { gateway }),
 }
 
 export const notificationsApi = {
@@ -373,6 +389,17 @@ export const omnichannelApi = {
 export const crmCallApi = {
   getLogs: () => api.get('/crm-call/logs'),
   getAnalytics: () => api.get('/crm-call/analytics'),
+  createLog: (data: {
+    contactId?: string;
+    contactPhone?: string;
+    contactName?: string;
+    duration: number;
+    status: 'COMPLETED' | 'MISSED' | 'BUSY' | 'FAILED';
+    recordingUrl?: string;
+    transcription?: string;
+    sentiment?: string;
+    queryResolved: boolean;
+  }) => api.post('/crm-call/log', data),
   submitSurvey: (callId: string, score: number, feedback?: string) =>
     api.post(`/crm-call/survey/${callId}`, { score, feedback }),
 }

@@ -39,6 +39,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { contactsApi } from '@/lib/api';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -87,87 +88,7 @@ export const ContactsTable: React.FC<ContactsTableProps> = ({ businessId }) => {
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [form] = Form.useForm();
 
-  // Mock data - En producción vendría de la API
-  const mockContacts: Contact[] = [
-    {
-      id: '1',
-      name: 'Juan Pérez',
-      email: 'juan.perez@email.com',
-      phone: '+51 987 654 321',
-      company: 'Tech Solutions SA',
-      status: 'CUSTOMER',
-      source: 'WHATSAPP',
-      lastActivity: '2024-01-15T10:30:00Z',
-      totalSpent: 2500,
-      dealCount: 3,
-      lastPayment: '2024-01-15T10:30:00Z',
-      nextAppointment: '2024-01-20T14:00:00Z',
-      tags: ['VIP', ' recurrente'],
-      assignedTo: 'Ana García',
-      createdAt: '2024-01-01T09:00:00Z'
-    },
-    {
-      id: '2',
-      name: 'María García',
-      email: 'maria.garcia@email.com',
-      phone: '+51 123 456 789',
-      company: 'Marketing Digital LTDA',
-      status: 'LEAD',
-      source: 'INSTAGRAM',
-      lastActivity: '2024-01-15T09:15:00Z',
-      totalSpent: 0,
-      dealCount: 0,
-      tags: ['prospecto'],
-      assignedTo: 'Carlos López',
-      createdAt: '2024-01-10T11:30:00Z'
-    },
-    {
-      id: '3',
-      name: 'Carlos López',
-      email: 'carlos.lopez@email.com',
-      phone: '+51 456 789 012',
-      company: 'Consultoría ABC',
-      status: 'CONTACT',
-      source: 'WEB',
-      lastActivity: '2024-01-14T16:45:00Z',
-      totalSpent: 800,
-      dealCount: 1,
-      lastPayment: '2024-01-10T15:20:00Z',
-      tags: ['nuevo cliente'],
-      assignedTo: 'Ana García',
-      createdAt: '2024-01-05T14:00:00Z'
-    },
-    {
-      id: '4',
-      name: 'Ana Martínez',
-      email: 'ana.martinez@email.com',
-      phone: '+51 789 012 345',
-      status: 'CHURNED',
-      source: 'TELEGRAM',
-      lastActivity: '2023-12-20T10:00:00Z',
-      totalSpent: 500,
-      dealCount: 2,
-      tags: ['perdido'],
-      assignedTo: 'Carlos López',
-      createdAt: '2023-11-15T09:00:00Z'
-    },
-    {
-      id: '5',
-      name: 'Roberto Silva',
-      email: 'roberto.silva@email.com',
-      phone: '+51 234 567 890',
-      company: 'StartUp Tech',
-      status: 'CONTACT',
-      source: 'MANUAL',
-      lastActivity: '2024-01-15T11:00:00Z',
-      totalSpent: 0,
-      dealCount: 0,
-      nextAppointment: '2024-01-18T10:00:00Z',
-      tags: ['interesado'],
-      assignedTo: 'Ana García',
-      createdAt: '2024-01-12T16:00:00Z'
-    }
-  ];
+
 
   useEffect(() => {
     loadContacts();
@@ -180,9 +101,30 @@ export const ContactsTable: React.FC<ContactsTableProps> = ({ businessId }) => {
   const loadContacts = async () => {
     setLoading(true);
     try {
-      // Simulación de carga desde API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setContacts(mockContacts);
+      const response = await contactsApi.getAll(businessId);
+      const data = response.data;
+      
+      const mapped = data.map((c: any) => {
+        const meta = c.metadata || {};
+        return {
+          id: c.id,
+          name: c.name || '',
+          email: c.email || '',
+          phone: c.phone || '',
+          company: meta.company || '',
+          status: meta.status || 'CONTACT',
+          source: c.source || 'MANUAL',
+          lastActivity: c.updatedAt || c.createdAt || new Date().toISOString(),
+          totalSpent: Number(meta.totalSpent || 0),
+          dealCount: Number(meta.dealCount || 0),
+          lastPayment: meta.lastPayment || undefined,
+          nextAppointment: meta.nextAppointment || undefined,
+          tags: c.tags?.map((t: any) => t.label) || [],
+          assignedTo: meta.assignedTo || '',
+          createdAt: c.createdAt || new Date().toISOString()
+        };
+      });
+      setContacts(mapped);
     } catch (error) {
       message.error('Error al cargar contactos');
     } finally {
@@ -266,40 +208,55 @@ export const ContactsTable: React.FC<ContactsTableProps> = ({ businessId }) => {
     Modal.confirm({
       title: '¿Eliminar contacto?',
       content: `¿Estás seguro de que quieres eliminar a ${contact.name}?`,
-      onOk: () => {
-        setContacts(contacts.filter(c => c.id !== contact.id));
-        message.success('Contacto eliminado');
+      onOk: async () => {
+        try {
+          await contactsApi.delete(contact.id);
+          message.success('Contacto eliminado');
+          loadContacts();
+        } catch (error) {
+          message.error('Error al eliminar contacto');
+        }
       }
     });
   };
 
   const handleSaveContact = async (values: any) => {
     try {
+      const meta = {
+        company: values.company || '',
+        status: values.status || 'CONTACT',
+        assignedTo: values.assignedTo || '',
+        totalSpent: editingContact ? editingContact.totalSpent : 0,
+        dealCount: editingContact ? editingContact.dealCount : 0,
+        lastPayment: editingContact ? editingContact.lastPayment : undefined,
+        nextAppointment: editingContact ? editingContact.nextAppointment : undefined,
+      };
+
+      const payload = {
+        name: values.name,
+        email: values.email,
+        phone: values.phone,
+        source: values.source || 'MANUAL',
+        tags: values.tags || [],
+        metadata: meta
+      };
+
       if (editingContact) {
         // Editar contacto existente
-        setContacts(contacts.map(c => 
-          c.id === editingContact.id ? { ...c, ...values } : c
-        ));
+        await contactsApi.update(editingContact.id, payload);
         message.success('Contacto actualizado');
       } else {
         // Crear nuevo contacto
-        const newContact: Contact = {
-          ...values,
-          id: Date.now().toString(),
-          totalSpent: 0,
-          dealCount: 0,
-          tags: [],
-          createdAt: new Date().toISOString(),
-          lastActivity: new Date().toISOString()
-        };
-        setContacts([...contacts, newContact]);
+        await contactsApi.create(businessId, payload);
         message.success('Contacto creado');
       }
+      
+      await loadContacts();
       setContactModalVisible(false);
       setEditingContact(null);
       form.resetFields();
-    } catch (error) {
-      message.error('Error al guardar contacto');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Error al guardar contacto');
     }
   };
 

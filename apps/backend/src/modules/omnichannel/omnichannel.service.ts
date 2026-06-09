@@ -17,6 +17,22 @@ type ConversationIdentity = {
 @Injectable()
 export class OmnichannelService {
   private readonly logger = new Logger(OmnichannelService.name);
+  private readonly contactConversationSelect = {
+    id: true,
+    name: true,
+    phone: true,
+    email: true,
+    source: true,
+    autoCreated: true,
+    metadata: true,
+    lastIncomingAt: true,
+    lastOutgoingAt: true,
+    createdAt: true,
+    updatedAt: true,
+    businessId: true,
+    whatsappAccountId: true,
+    tags: true,
+  } as const;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -356,10 +372,28 @@ export class OmnichannelService {
 
     if (existing) {
       try {
-        return await this.prisma.contact.update({ where: { id: existing.id }, data: payload as any, include: { tags: true } });
+        return await this.prisma.contact.update({ where: { id: existing.id }, data: payload as any, select: this.contactConversationSelect });
       } catch (error: any) {
         this.logger.warn(`[Omnichannel] Contact update fell back without tags: ${error.message}`);
-        const updated = await this.prisma.contact.update({ where: { id: existing.id }, data: payload as any });
+        const updated = await this.prisma.contact.update({
+          where: { id: existing.id },
+          data: payload as any,
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            source: true,
+            autoCreated: true,
+            metadata: true,
+            lastIncomingAt: true,
+            lastOutgoingAt: true,
+            createdAt: true,
+            updatedAt: true,
+            businessId: true,
+            whatsappAccountId: true,
+          },
+        });
         return { ...updated, tags: [] };
       }
     }
@@ -367,12 +401,27 @@ export class OmnichannelService {
     try {
       return await this.prisma.contact.create({
         data: { businessId, ...payload, autoCreated: true } as any,
-        include: { tags: true },
+        select: this.contactConversationSelect,
       });
     } catch (error: any) {
       this.logger.warn(`[Omnichannel] Contact create fell back without tags: ${error.message}`);
       const created = await this.prisma.contact.create({
         data: { businessId, ...payload, autoCreated: true } as any,
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          source: true,
+          autoCreated: true,
+          metadata: true,
+          lastIncomingAt: true,
+          lastOutgoingAt: true,
+          createdAt: true,
+          updatedAt: true,
+          businessId: true,
+          whatsappAccountId: true,
+        },
       });
       return { ...created, tags: [] };
     }
@@ -446,7 +495,7 @@ export class OmnichannelService {
     try {
       return await this.prisma.contact.findMany({
         where: { businessId },
-        include: { tags: true },
+        select: this.contactConversationSelect,
         orderBy: { updatedAt: 'desc' },
       });
     } catch (error: any) {
@@ -454,6 +503,21 @@ export class OmnichannelService {
       const contacts = await this.safeFindMany('contacts fallback', businessId, () =>
         this.prisma.contact.findMany({
           where: { businessId },
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            source: true,
+            autoCreated: true,
+            metadata: true,
+            lastIncomingAt: true,
+            lastOutgoingAt: true,
+            createdAt: true,
+            updatedAt: true,
+            businessId: true,
+            whatsappAccountId: true,
+          },
           orderBy: { updatedAt: 'desc' },
         }),
       );
@@ -498,7 +562,7 @@ export class OmnichannelService {
             { metadata: { path: ['externalIdentity'], equals: identity } as any },
           ],
         },
-        include: { tags: true },
+        select: this.contactConversationSelect,
       });
     } catch (error: any) {
       this.logger.warn(`[Omnichannel] contact identity lookup fell back for ${businessId}: ${error.message}`);
@@ -506,6 +570,21 @@ export class OmnichannelService {
         where: {
           businessId,
           OR: [{ phone: identity }, { email: identity }],
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          source: true,
+          autoCreated: true,
+          metadata: true,
+          lastIncomingAt: true,
+          lastOutgoingAt: true,
+          createdAt: true,
+          updatedAt: true,
+          businessId: true,
+          whatsappAccountId: true,
         },
       });
       return contact ? { ...contact, tags: [] } : null;

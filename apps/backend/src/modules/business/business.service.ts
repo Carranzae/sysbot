@@ -973,6 +973,31 @@ export class BusinessService {
       },
     });
 
+    const gateway = business?.paymentGateway;
+    const gatewayConfig: Record<string, any> = {};
+
+    if (gateway && gateway !== 'NONE') {
+      const prefix = gateway.toLowerCase();
+      const configs = await this.prisma.systemConfig.findMany({
+        where: {
+          entityId: businessId,
+          scope: 'BUSINESS',
+          key: {
+            startsWith: `${prefix}_`
+          }
+        }
+      });
+
+      configs.forEach(item => {
+        const field = item.key.replace(`${prefix}_`, '');
+        if (['apiKey', 'apiSecret', 'webhookSecret'].includes(field)) {
+          gatewayConfig[field] = item.value ? '••••••••••••••••' : '';
+        } else {
+          gatewayConfig[field] = item.value;
+        }
+      });
+    }
+
     return {
       email: business?.email,
       gateway: business?.paymentGateway,
@@ -980,6 +1005,7 @@ export class BusinessService {
       webhookUrl: business?.paymentWebhookUrl,
       monthlyBudget: business?.budget?.monthlyBudget,
       alertThreshold: business?.budgetAlertThreshold,
+      config: gatewayConfig,
     };
   }
 
@@ -988,24 +1014,25 @@ export class BusinessService {
     gateway?: string;
     whatsappNumber?: string;
     paymentWebhookUrl?: string;
+    config?: Record<string, any>;
   }) {
     await this.ensureBusinessOwnership(ownerId, businessId);
 
     // Validate gateway if provided
-    if (settings.gateway && !['stripe', 'paypal', 'mercadopago', 'transbank'].includes(settings.gateway.toLowerCase())) {
+    if (settings.gateway && !['stripe', 'paypal', 'mercadopago', 'transbank', 'izipay', 'yape_plin', 'manual', 'none'].includes(settings.gateway.toLowerCase())) {
       throw new BadRequestException('Invalid payment gateway');
     }
 
     // Validate WhatsApp number format if provided
-    if (settings.whatsappNumber && !/^\+\d{10,15}$/.test(settings.whatsappNumber)) {
+    if (settings.whatsappNumber && !/^\+?\d{10,15}$/.test(settings.whatsappNumber)) {
       throw new BadRequestException('Invalid WhatsApp number format. Use international format: +1234567890');
     }
 
-    return this.prisma.business.update({
+    const updatedBusiness = await this.prisma.business.update({
       where: { id: businessId },
       data: {
         email: settings.email,
-        paymentGateway: settings.gateway?.toUpperCase() as any,
+        paymentGateway: settings.gateway ? (settings.gateway.toUpperCase() as any) : undefined,
         whatsappNumber: settings.whatsappNumber,
         paymentWebhookUrl: settings.paymentWebhookUrl,
       },
@@ -1018,6 +1045,35 @@ export class BusinessService {
         paymentWebhookUrl: true,
       },
     });
+
+    if (settings.config && settings.gateway && settings.gateway !== 'NONE') {
+      const prefix = settings.gateway.toLowerCase();
+      for (const [key, value] of Object.entries(settings.config)) {
+        if (value !== undefined && value !== null && value !== '••••••••••••••••') {
+          const configKey = `${prefix}_${key}`;
+          await this.prisma.systemConfig.upsert({
+            where: {
+              key_scope_entityId: {
+                key: configKey,
+                scope: 'BUSINESS',
+                entityId: businessId,
+              }
+            },
+            update: {
+              value: String(value),
+            },
+            create: {
+              key: configKey,
+              value: String(value),
+              scope: 'BUSINESS',
+              entityId: businessId,
+            }
+          });
+        }
+      }
+    }
+
+    return updatedBusiness;
   }
 
   async getContactSettings(ownerId: string, businessId: string) {

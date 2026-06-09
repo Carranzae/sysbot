@@ -52,6 +52,13 @@ export class PaymentAutomationService {
       // Obtener gateway
       const gateway = await this.paymentFactory.getGateway(business.paymentGateway);
 
+      // Conectar gateway con las credenciales del negocio
+      const gatewayConfig = await this.getBusinessGatewayConfig(dto.businessId, business.paymentGateway);
+      const isConnected = await gateway.connect(gatewayConfig);
+      if (!isConnected) {
+        throw new Error(`Failed to initialize payment gateway ${business.paymentGateway} for business ${dto.businessId}`);
+      }
+
       // Crear solicitud de pago
       const paymentRequest: PaymentRequest = {
         amount: dto.amount,
@@ -133,6 +140,10 @@ export class PaymentAutomationService {
       // Obtener gateway
       const gateway = await this.paymentFactory.getGateway(automatedPayment.business.paymentGateway);
 
+      // Conectar gateway con las credenciales del negocio
+      const gatewayConfig = await this.getBusinessGatewayConfig(automatedPayment.businessId, automatedPayment.business.paymentGateway);
+      await gateway.connect(gatewayConfig);
+
       // Verificar en el gateway externo
       const paymentStatus = await gateway.verifyPayment(automatedPayment.gatewayPaymentId);
 
@@ -157,6 +168,96 @@ export class PaymentAutomationService {
       };
     } catch (error) {
       this.logger.error('[PaymentAutomation] Error verifying payment:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Reembolsar un pago completado en el gateway externo y actualizar la BD local
+   */
+  async refundPayment(paymentId: string, amount?: number, reason?: string): Promise<any> {
+    try {
+      this.logger.log(`[PaymentAutomation] Refunding payment: ${paymentId}`);
+
+      const automatedPayment = await this.prisma.automatedPayment.findUnique({
+        where: { id: paymentId },
+        include: {
+          business: {
+            select: {
+              paymentGateway: true
+            }
+          }
+        }
+      });
+
+      if (!automatedPayment) {
+        throw new Error('Payment not found');
+      }
+
+      if (automatedPayment.status !== 'COMPLETED') {
+        throw new Error('Only completed payments can be refunded');
+      }
+
+      if (!automatedPayment.gatewayPaymentId) {
+        throw new Error('Payment does not have an external gateway ID');
+      }
+
+      const totalAmount = Number(automatedPayment.amount);
+      if (amount && (amount <= 0 || amount > totalAmount)) {
+        throw new Error('Refund amount must be greater than 0 and less than or equal to the payment amount');
+      }
+
+      const gateway = await this.paymentFactory.getGateway(automatedPayment.business.paymentGateway);
+      const gatewayConfig = await this.getBusinessGatewayConfig(
+        automatedPayment.businessId,
+        automatedPayment.business.paymentGateway
+      );
+      const isConnected = await gateway.connect(gatewayConfig);
+      if (!isConnected) {
+        throw new Error(`Failed to initialize payment gateway ${automatedPayment.business.paymentGateway}`);
+      }
+
+      const refund = await gateway.refundPayment(
+        automatedPayment.gatewayPaymentId,
+        amount,
+        reason
+      );
+
+      const existingMetadata =
+        automatedPayment.metadata &&
+        typeof automatedPayment.metadata === 'object' &&
+        !Array.isArray(automatedPayment.metadata)
+          ? automatedPayment.metadata as Record<string, any>
+          : {};
+
+      const newStatus = refund.status === 'succeeded' ? 'REFUNDED' : 'PROCESSING';
+      await this.prisma.automatedPayment.update({
+        where: { id: paymentId },
+        data: {
+          status: newStatus,
+          metadata: {
+            ...existingMetadata,
+            refund: {
+              refundId: refund.refundId,
+              amount: refund.amount,
+              status: refund.status,
+              reason: refund.reason || reason || null,
+              processedAt: new Date().toISOString()
+            }
+          },
+          updatedAt: new Date()
+        }
+      });
+
+      this.logger.log(`[PaymentAutomation] Payment ${paymentId} refund status: ${newStatus}`);
+
+      return {
+        paymentId,
+        status: newStatus,
+        refund
+      };
+    } catch (error) {
+      this.logger.error('[PaymentAutomation] Error refunding payment:', error.message);
       throw error;
     }
   }
@@ -298,6 +399,78 @@ export class PaymentAutomationService {
     } catch (error) {
       this.logger.error('[PaymentAutomation] Error getting payment stats:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Obtener todos los pagos de un negocio (histórico)
+   */
+  async getAllPayments(businessId: string, limit: number = 50): Promise<any[]> {
+    try {
+      const payments = await this.prisma.automatedPayment.findMany({
+        where: {
+          businessId
+        },
+        include: {
+          business: {
+            select: {
+              name: true,
+              paymentGateway: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        take: limit
+      });
+
+      return payments.map(payment => ({
+        ...payment,
+        isExpired: payment.expiresAt && new Date() > payment.expiresAt
+      }));
+    } catch (error) {
+      this.logger.error('[PaymentAutomation] Error getting all payments:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtener configuraciones del gateway del negocio desde SystemConfig
+   */
+  private async getBusinessGatewayConfig(businessId: string, gateway: PaymentGateway): Promise<any> {
+    const configs = await this.prisma.systemConfig.findMany({
+      where: {
+        entityId: businessId,
+        scope: 'BUSINESS',
+        key: {
+          startsWith: `${gateway.toLowerCase()}_`
+        }
+      }
+    });
+
+    const configMap = configs.reduce((acc, item) => {
+      const field = item.key.replace(`${gateway.toLowerCase()}_`, '');
+      acc[field] = item.value;
+      return acc;
+    }, {} as any);
+
+    return configMap;
+  }
+
+  /**
+   * Probar conexión del gateway de un negocio
+   */
+  async testGatewayConnection(businessId: string, gateway: PaymentGateway): Promise<{ success: boolean; message: string }> {
+    try {
+      const gatewayConfig = await this.getBusinessGatewayConfig(businessId, gateway);
+      return await this.paymentFactory.testGateway(gateway, gatewayConfig);
+    } catch (error) {
+      this.logger.error(`[PaymentAutomation] Error testing gateway connection for business ${businessId}:`, error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 }
