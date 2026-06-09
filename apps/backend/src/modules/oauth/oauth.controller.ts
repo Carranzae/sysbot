@@ -46,8 +46,29 @@ export class OauthController {
     if (!businessId) {
       throw new BadRequestException('businessId is required');
     }
-    const url = this.metaOauth.buildMetaAuthUrl(businessId, platform);
-    return res.redirect(url);
+    try {
+      const url = this.metaOauth.buildMetaAuthUrl(businessId, platform);
+      return res.redirect(url);
+    } catch (error: any) {
+      const frontendBase = this.config.get<string>('FRONTEND_PUBLIC_URL') || 'http://localhost:3000';
+      const message = error?.response?.message || error?.message || 'No se pudo iniciar Meta OAuth';
+      return res.redirect(
+        `${frontendBase}/redes?oauthError=${encodeURIComponent(message)}&businessId=${encodeURIComponent(businessId)}`
+      );
+    }
+  }
+
+  @Get(':platform/start-url')
+  getStartUrl(
+    @Param('platform') platform: 'facebook' | 'instagram',
+    @Query('businessId') businessId: string,
+  ) {
+    if (!businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+    return {
+      url: this.metaOauth.buildMetaAuthUrl(businessId, platform),
+    };
   }
 
   @Get('meta/callback')

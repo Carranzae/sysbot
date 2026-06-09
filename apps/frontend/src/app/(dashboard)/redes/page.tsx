@@ -40,6 +40,7 @@ export default function RedesPage() {
 
   const connectedParam = searchParams?.get('connected') || null;
   const callbackBusinessIdParam = searchParams?.get('businessId') || null;
+  const oauthErrorParam = searchParams?.get('oauthError') || null;
   const metaSelectParam = searchParams?.get('metaSelect') || null;
   const metaSessionIdParam = searchParams?.get('sessionId') || null;
   const createParam = searchParams?.get('create') || null;
@@ -92,6 +93,15 @@ export default function RedesPage() {
     if (!businessId) return;
     fetchBusinessData(businessId);
   }, [businessId, fetchBusinessData]);
+
+  useEffect(() => {
+    if (!oauthErrorParam) return;
+    toast({
+      title: 'No se pudo iniciar Meta OAuth',
+      description: oauthErrorParam,
+      variant: 'destructive',
+    });
+  }, [oauthErrorParam, toast]);
 
   useEffect(() => {
     if (!connectedParam && !callbackBusinessIdParam) return;
@@ -299,8 +309,10 @@ export default function RedesPage() {
     }
   };
 
-  const startOAuth = () => {
+  const startOAuth = async () => {
     if (!selectedPlatform) return;
+    const business = selectedBusiness;
+    if (!business) return;
 
     if (selectedPlatform !== 'facebook' && selectedPlatform !== 'instagram') {
       toast({
@@ -313,8 +325,29 @@ export default function RedesPage() {
       return;
     }
 
+    setIsMetaLoading(true);
+    try {
+      const response = await oauthApi.getMetaStartUrl(selectedPlatform, business.id);
+      window.open(response.data.url, '_blank', 'noopener,noreferrer');
+      toast({
+        title: 'Vinculacion iniciada',
+        description: 'Completa el login en la ventana oficial. Luego vuelve y recarga la pagina.',
+      });
+      setConnectOpen(false);
+      return;
+    } catch (e: any) {
+      toast({
+        title: 'No se pudo iniciar Meta OAuth',
+        description: e?.response?.data?.message || e?.message || 'Revisa META_APP_ID y META_APP_SECRET en Railway.',
+        variant: 'destructive',
+      });
+      return;
+    } finally {
+      setIsMetaLoading(false);
+    }
+
     const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
-    const url = `${base}/oauth/${selectedPlatform}/start?businessId=${encodeURIComponent(selectedBusiness.id)}`;
+    const url = `${base}/oauth/${selectedPlatform}/start?businessId=${encodeURIComponent(business.id)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
     toast({
       title: 'Vinculación iniciada',

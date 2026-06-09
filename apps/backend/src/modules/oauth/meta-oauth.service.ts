@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaService } from '../meta/meta.service';
 import { PrismaService } from '../database/prisma.service';
@@ -32,6 +32,22 @@ export class MetaOauthService {
     private readonly prisma: PrismaService,
   ) {}
 
+  private getMetaAppId() {
+    return (
+      this.config.get<string>('META_APP_ID') ||
+      this.config.get<string>('FACEBOOK_APP_ID') ||
+      this.config.get<string>('FB_APP_ID')
+    );
+  }
+
+  private getMetaAppSecret() {
+    return (
+      this.config.get<string>('META_APP_SECRET') ||
+      this.config.get<string>('FACEBOOK_APP_SECRET') ||
+      this.config.get<string>('FB_APP_SECRET')
+    );
+  }
+
   getRedirectUri() {
     // Must match exactly the value configured in Meta Developer Console.
     return (
@@ -41,9 +57,9 @@ export class MetaOauthService {
   }
 
   buildMetaAuthUrl(businessId: string, platform: 'facebook' | 'instagram') {
-    const appId = this.config.get<string>('META_APP_ID');
+    const appId = this.getMetaAppId();
     if (!appId) {
-      throw new Error('META_APP_ID is not configured');
+      throw new BadRequestException('Meta OAuth no esta configurado en Railway. Define META_APP_ID y META_APP_SECRET.');
     }
 
     const redirectUri = this.getRedirectUri();
@@ -56,8 +72,11 @@ export class MetaOauthService {
       'pages_read_engagement',
       'pages_manage_posts',
       'pages_manage_metadata',
+      'pages_manage_engagement',
+      'pages_messaging',
       'instagram_basic',
       'instagram_content_publish',
+      'instagram_manage_messages',
       'business_management',
     ].join(',');
 
@@ -73,10 +92,10 @@ export class MetaOauthService {
   }
 
   async handleCallback(code: string, encodedState: string) {
-    const appId = this.config.get<string>('META_APP_ID');
-    const appSecret = this.config.get<string>('META_APP_SECRET');
+    const appId = this.getMetaAppId();
+    const appSecret = this.getMetaAppSecret();
     if (!appId || !appSecret) {
-      throw new Error('META_APP_ID or META_APP_SECRET is not configured');
+      throw new BadRequestException('Meta OAuth no esta configurado en Railway. Define META_APP_ID y META_APP_SECRET.');
     }
 
     let state: MetaOAuthState;

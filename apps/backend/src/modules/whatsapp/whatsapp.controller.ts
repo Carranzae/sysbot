@@ -86,7 +86,7 @@ export class WhatsappController {
 
   @Post('web/init')
   @UseGuards(JwtAuthGuard)
-  async initWeb(@Req() req: any, @Body() body: { businessId?: string }): Promise<{ success: boolean; message?: string }> {
+  async initWeb(@Req() req: any, @Body() body: { businessId?: string; phoneNumber?: string; phone?: string }): Promise<{ success: boolean; message?: string }> {
     const businessId = body.businessId || req.user?.businessId;
     if (!businessId) {
       throw new BadRequestException('Business ID is required (provide in body or ensure user has active business)');
@@ -94,6 +94,39 @@ export class WhatsappController {
     await this.businessService.ensureBusinessOwnership(req.user.userId, businessId);
     try {
       // Forzar inicialización incluso si no está habilitado (para permitir que el usuario vea el QR)
+      const phoneNumber = (body.phoneNumber || body.phone || '').trim();
+      if (phoneNumber) {
+        if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
+          throw new BadRequestException('Invalid WhatsApp number format. Use international format: +51999999999');
+        }
+
+        await this.prisma.business.update({
+          where: { id: businessId },
+          data: { whatsappNumber: phoneNumber },
+        });
+
+        await this.prisma.botConfig.upsert({
+          where: { businessId },
+          update: {
+            whatsappWebNumber: phoneNumber,
+            whatsappWebEnabled: true,
+            whatsappMode: 'WHATSAPP_WEB',
+          },
+          create: {
+            businessId,
+            whatsappWebNumber: phoneNumber,
+            whatsappWebEnabled: true,
+            whatsappMode: 'WHATSAPP_WEB',
+            welcomeMessage: 'Hola! Bienvenido a nuestro negocio. En que podemos ayudarte?',
+            fallbackMessage: 'En este momento no estamos disponibles. Te responderemos pronto.',
+            autoReply: true,
+            audioEnabled: false,
+            aiProvider: 'OPENAI',
+            aiModel: 'gpt-4o',
+          },
+        });
+      }
+
       const result = await this.whatsappWebService.initializeClient(businessId, true);
       if (!result) {
         return {
@@ -139,6 +172,11 @@ export class WhatsappController {
         whatsappWebStatus: true,
         whatsappWebNumber: true,
         updatedAt: true,
+        business: {
+          select: {
+            whatsappNumber: true,
+          },
+        },
       }
     });
 
@@ -148,7 +186,7 @@ export class WhatsappController {
     return {
       status: statusString,
       connected,
-      phoneNumber: config?.whatsappWebNumber || '',
+      phoneNumber: config?.whatsappWebNumber || config?.business?.whatsappNumber || '',
       lastConnected: connected ? config?.updatedAt || null : null,
     };
   }

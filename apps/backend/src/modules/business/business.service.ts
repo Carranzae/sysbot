@@ -573,10 +573,6 @@ export class BusinessService {
   }
 
   async updateBotConfig(ownerId: string, businessId: string, config: any, role?: UserRole) {
-    console.log('updateBotConfig - ownerId:', ownerId);
-    console.log('updateBotConfig - businessId:', businessId);
-    console.log('updateBotConfig - config:', config);
-    
     if (!this.isAdminRole(role)) {
       await this.ensureBusinessOwnership(ownerId, businessId);
     }
@@ -604,15 +600,11 @@ export class BusinessService {
       return acc;
     }, {} as any);
     
-    console.log('updateBotConfig - cleanedConfig:', cleanedConfig);
-    
     // Obtener configuración actual para comparar
     const currentConfig = await this.prisma.botConfig.findUnique({
       where: { businessId },
       select: { whatsappWebEnabled: true, whatsappApiEnabled: true, whatsappMode: true },
     });
-
-    console.log('updateBotConfig - currentConfig:', currentConfig);
 
     const updated = await this.prisma.botConfig.upsert({
       where: { businessId },
@@ -635,7 +627,12 @@ export class BusinessService {
       },
     });
 
-    console.log('updateBotConfig - updated:', updated);
+    if (cleanedConfig.whatsappWebNumber) {
+      await this.prisma.business.update({
+        where: { id: businessId },
+        data: { whatsappNumber: cleanedConfig.whatsappWebNumber },
+      });
+    }
 
     // Determinar si WhatsApp Web está habilitado (nuevo valor o valor actual si no se especifica)
     const whatsappWebEnabled = config.whatsappWebEnabled !== undefined 
@@ -1045,6 +1042,25 @@ export class BusinessService {
         paymentWebhookUrl: true,
       },
     });
+
+    if (settings.whatsappNumber) {
+      await this.prisma.botConfig.upsert({
+        where: { businessId },
+        update: { whatsappWebNumber: settings.whatsappNumber },
+        create: {
+          businessId,
+          whatsappWebNumber: settings.whatsappNumber,
+          whatsappWebEnabled: false,
+          whatsappMode: 'WHATSAPP_WEB',
+          welcomeMessage: 'Hola! Bienvenido a nuestro negocio. En que podemos ayudarte?',
+          fallbackMessage: 'En este momento no estamos disponibles. Te responderemos pronto.',
+          autoReply: true,
+          audioEnabled: false,
+          aiProvider: 'OPENAI',
+          aiModel: 'gpt-4o',
+        },
+      });
+    }
 
     if (settings.config && settings.gateway && settings.gateway !== 'NONE') {
       const prefix = settings.gateway.toLowerCase();

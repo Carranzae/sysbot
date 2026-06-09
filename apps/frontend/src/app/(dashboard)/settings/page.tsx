@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import QRCode from 'react-qr-code'
-import { businessApi, whatsappApi } from '@/lib/api'
+import { businessApi, oauthApi, whatsappApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -89,10 +89,6 @@ export default function BusinessSettingsPage() {
     // Usar businessId de la URL o del negocio seleccionado
     const businessId = searchParams?.get('businessId') || selectedBusiness?.id
     
-    console.log('Settings page - searchParams businessId:', searchParams?.get('businessId'))
-    console.log('Settings page - selectedBusiness:', selectedBusiness)
-    console.log('Settings page - final businessId:', businessId)
-
     // Loading states
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
@@ -268,6 +264,12 @@ export default function BusinessSettingsPage() {
                     whatsappNumber: paymentData.whatsappNumber || '',
                     webhookUrl: paymentData.webhookUrl || '',
                 })
+                if (paymentData.whatsappNumber) {
+                    setWhatsappForm(prev => ({
+                        ...prev,
+                        destinationNumber: prev.destinationNumber || paymentData.whatsappNumber,
+                    }))
+                }
             } catch (paymentError) {
                 console.error('Error loading payment settings', paymentError)
                 setPaymentForm({
@@ -578,6 +580,39 @@ export default function BusinessSettingsPage() {
         }
     }
 
+    const startMetaOAuth = async (platform: 'facebook' | 'instagram') => {
+        if (!businessId) {
+            toast({
+                title: 'Error',
+                description: 'No se encontro el ID del negocio',
+                variant: 'destructive',
+            })
+            return
+        }
+
+        try {
+            setSaving(true)
+            const response = await oauthApi.getMetaStartUrl(platform, businessId)
+            const url = response.data?.url
+            if (!url) {
+                throw new Error('El backend no devolvio URL de OAuth')
+            }
+            window.open(url, '_blank', 'noopener,noreferrer')
+            toast({
+                title: platform === 'facebook' ? 'Messenger OAuth iniciado' : 'Instagram OAuth iniciado',
+                description: 'Completa el login de Meta en la nueva pestana y vuelve a actualizar el estado.',
+            })
+        } catch (error: any) {
+            toast({
+                title: 'No se pudo iniciar Meta OAuth',
+                description: error.response?.data?.message || error.message || 'Revisa META_APP_ID y META_APP_SECRET en Railway.',
+                variant: 'destructive',
+            })
+        } finally {
+            setSaving(false)
+        }
+    }
+
     const handleConnectWhatsApp = async () => {
         if (!businessId) {
             toast({
@@ -589,13 +624,25 @@ export default function BusinessSettingsPage() {
         }
 
         try {
+            const phoneNumber = whatsappForm.destinationNumber.trim().replace(/[^\d+]/g, '')
+            if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
+                toast({
+                    title: 'Numero requerido',
+                    description: 'Ingresa el numero de WhatsApp en formato internacional, por ejemplo +51987654321.',
+                    variant: 'destructive',
+                })
+                return
+            }
+
+            setWhatsappForm(prev => ({ ...prev, destinationNumber: phoneNumber, enabled: true }))
+
             if ((window as any).qrRefreshInterval) {
                 clearInterval((window as any).qrRefreshInterval)
                 delete (window as any).qrRefreshInterval
             }
             
             // Inicializar WhatsApp Web
-            await whatsappApi.initWeb(businessId)
+            await whatsappApi.initWeb(businessId, phoneNumber)
             
             // Obtener el código QR inicial
             await refreshQrCode()
@@ -1199,6 +1246,17 @@ export default function BusinessSettingsPage() {
                                                 </>
                                             ) : (
                                                 <>
+                                                    <div className="space-y-1.5">
+                                                        <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                                            Numero de WhatsApp
+                                                        </Label>
+                                                        <Input
+                                                            value={whatsappForm.destinationNumber}
+                                                            onChange={(event) => setWhatsappForm(prev => ({ ...prev, destinationNumber: event.target.value }))}
+                                                            placeholder="+51987654321"
+                                                            className="h-10 rounded-xl border-slate-200 text-xs font-semibold"
+                                                        />
+                                                    </div>
                                                     {whatsappForm.webConnection.qrCodeData ? (
                                                         <div className="space-y-3">
                                                             <div className="flex justify-center p-3 bg-slate-50 rounded-2xl border border-slate-100">
@@ -1244,12 +1302,8 @@ export default function BusinessSettingsPage() {
                                             <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Vincula tu cuenta empresarial de Instagram. Responde DMs y comentarios automáticamente.</p>
                                         </div>
                                         <Button 
-                                            onClick={() => {
-                                                toast({
-                                                    title: 'Instagram OAuth',
-                                                    description: 'Conectando con Facebook Login API...',
-                                                })
-                                            }}
+                                            onClick={() => startMetaOAuth('instagram')}
+                                            disabled={saving}
                                             className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
                                         >
                                             Login con Facebook
@@ -1270,12 +1324,8 @@ export default function BusinessSettingsPage() {
                                             <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Conecta tu página empresarial de Facebook para atender todos tus chats de Messenger.</p>
                                         </div>
                                         <Button 
-                                            onClick={() => {
-                                                toast({
-                                                    title: 'Messenger OAuth',
-                                                    description: 'Redirigiendo a Meta Login Flow...',
-                                                })
-                                            }}
+                                            onClick={() => startMetaOAuth('facebook')}
+                                            disabled={saving}
                                             className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
                                         >
                                             Conectar Página

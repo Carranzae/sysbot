@@ -227,7 +227,16 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
 
       const config = await this.prisma.botConfig.findUnique({
         where: { businessId },
-        select: { whatsappWebStatus: true, whatsappWebNumber: true, updatedAt: true },
+        select: {
+          whatsappWebStatus: true,
+          whatsappWebNumber: true,
+          updatedAt: true,
+          business: {
+            select: {
+              whatsappNumber: true,
+            },
+          },
+        },
       });
 
       const statusString = config?.whatsappWebStatus || 'DISABLED';
@@ -236,7 +245,7 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
       return {
         status: statusString,
         connected,
-        phoneNumber: config?.whatsappWebNumber || '',
+        phoneNumber: config?.whatsappWebNumber || config?.business?.whatsappNumber || '',
         lastConnected: connected ? config?.updatedAt || null : null,
       };
     } catch (error: any) {
@@ -248,6 +257,39 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
   async startWhatsApp(usePairingCode: boolean, phone: string, token: string, businessId?: string) {
     try {
       if (!businessId) throw new Error('Business ID is required');
+
+      const phoneNumber = (phone || '').trim();
+      if (phoneNumber) {
+        if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
+          throw new Error('Invalid WhatsApp number format. Use international format: +51999999999');
+        }
+
+        await this.prisma.business.update({
+          where: { id: businessId },
+          data: { whatsappNumber: phoneNumber },
+        });
+
+        await this.prisma.botConfig.upsert({
+          where: { businessId },
+          update: {
+            whatsappWebNumber: phoneNumber,
+            whatsappWebEnabled: true,
+            whatsappMode: 'WHATSAPP_WEB',
+          },
+          create: {
+            businessId,
+            whatsappWebNumber: phoneNumber,
+            whatsappWebEnabled: true,
+            whatsappMode: 'WHATSAPP_WEB',
+            welcomeMessage: 'Hola! Bienvenido a nuestro negocio. En que podemos ayudarte?',
+            fallbackMessage: 'En este momento no estamos disponibles. Te responderemos pronto.',
+            autoReply: true,
+            audioEnabled: false,
+            aiProvider: 'OPENAI',
+            aiModel: 'gpt-4o',
+          },
+        });
+      }
 
       // Initialize local WhatsApp client
       await this.whatsappWebService.initializeClient(businessId, true);

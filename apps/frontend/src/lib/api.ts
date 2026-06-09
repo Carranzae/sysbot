@@ -213,7 +213,7 @@ export const whatsappApi = {
     }),
   createAccount: (data: any) => api.post('/whatsapp/accounts', data),
   sendMessage: (data: { phoneNumberId: string; to: string; message: string }) => api.post('/whatsapp/send-message', data),
-  initWeb: (businessId: string) => api.post('/whatsapp/web/init', { businessId }),
+  initWeb: (businessId: string, phoneNumber?: string) => api.post('/whatsapp/web/init', { businessId, phoneNumber }),
   getQr: (businessId: string) => api.get('/whatsapp/web/qr', { params: { businessId } }),
   getStatus: (businessId: string) => api.get('/whatsapp/web/status', { params: { businessId } }),
   sendWebMessage: (businessId: string, to: string, message: string) => api.post('/whatsapp/web/send-message', { businessId, to, message }),
@@ -238,6 +238,8 @@ export const metaApi = {
 }
 
 export const oauthApi = {
+  getMetaStartUrl: (platform: 'facebook' | 'instagram', businessId: string) =>
+    api.get(`/oauth/${platform}/start-url`, { params: { businessId } }),
   getMetaPages: (sessionId: string) => api.get('/oauth/meta/pages', { params: { sessionId } }),
   selectMetaPage: (sessionId: string, pageId: string) => api.post('/oauth/meta/select-page', { sessionId, pageId }),
 }

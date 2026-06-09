@@ -97,7 +97,12 @@ export class WhatsappWebService implements OnModuleInit {
         whatsappWebEnabled: true, 
         whatsappMode: true,
         whatsappWebSession: true, 
-        whatsappWebNumber: true 
+        whatsappWebNumber: true,
+        business: {
+          select: {
+            whatsappNumber: true,
+          },
+        },
       },
     });
 
@@ -173,7 +178,33 @@ export class WhatsappWebService implements OnModuleInit {
         this.sockets.delete(businessId);
       }
 
-    const phoneNumber = config?.whatsappWebNumber;
+    let phoneNumber = config?.whatsappWebNumber || config?.business?.whatsappNumber;
+    if (!phoneNumber) {
+      const business = await this.prisma.business.findUnique({
+        where: { id: businessId },
+        select: { whatsappNumber: true },
+      });
+      phoneNumber = business?.whatsappNumber || '';
+
+      if (phoneNumber) {
+        await this.prisma.botConfig.upsert({
+          where: { businessId },
+          update: { whatsappWebNumber: phoneNumber },
+          create: {
+            businessId,
+            whatsappWebNumber: phoneNumber,
+            whatsappWebEnabled: true,
+            whatsappMode: 'WHATSAPP_WEB',
+            welcomeMessage: 'Hola! Bienvenido a nuestro negocio. En que podemos ayudarte?',
+            fallbackMessage: 'En este momento no estamos disponibles. Te responderemos pronto.',
+            autoReply: true,
+            audioEnabled: false,
+            aiProvider: 'OPENAI',
+            aiModel: 'gpt-4o',
+          },
+        });
+      }
+    }
     if (!phoneNumber) {
       console.warn(`[WhatsApp Web] ⚠️ No phone number configured for businessId: ${businessId}. Skipping client initialization.`);
       if (forceInit) {

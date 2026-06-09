@@ -9,7 +9,7 @@ import { useBusinessStore } from '@/store/business'
 import { Button } from '@/components/ui/button'
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { notificationsApi, businessApi, whatsappApi, metaApi } from '@/lib/api'
+import { notificationsApi, businessApi, whatsappApi, metaApi, oauthApi } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { connectWebSocket, disconnectWebSocket, joinBusinessRoom, joinUserRoom, leaveBusinessRoom, leaveUserRoom, subscribeToAdminNotifications } from '@/lib/websocket'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -77,10 +77,30 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const handleConnectMeta = (platform: 'facebook' | 'instagram') => {
+  const handleConnectMeta = async (platform: 'facebook' | 'instagram') => {
     if (!selectedBusiness) return
+    const business = selectedBusiness
+    try {
+      setSettingsSaving(true)
+      const response = await oauthApi.getMetaStartUrl(platform, business.id)
+      window.open(response.data.url, '_blank', 'noopener,noreferrer')
+      toast({
+        title: 'OAuth Iniciado',
+        description: 'Completa la autenticacion en la nueva pestana y luego recarga la configuracion.',
+      })
+      return
+    } catch (e: any) {
+      toast({
+        title: 'No se pudo iniciar Meta OAuth',
+        description: e.response?.data?.message || e.message || 'Revisa META_APP_ID y META_APP_SECRET en Railway.',
+        variant: 'destructive',
+      })
+      return
+    } finally {
+      setSettingsSaving(false)
+    }
     const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
-    const url = `${base}/oauth/${platform}/start?businessId=${encodeURIComponent(selectedBusiness.id)}`
+    const url = `${base}/oauth/${platform}/start?businessId=${encodeURIComponent(business.id)}`
     window.open(url, '_blank', 'noopener,noreferrer')
     toast({
       title: 'OAuth Iniciado',
@@ -125,6 +145,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       try {
         const botConfigRes = await businessApi.getBotConfig(selectedBusiness.id)
         const botConfig = botConfigRes.data
+        if (botConfig.whatsappWebNumber) {
+          setWaPhoneNumber((current) => current || botConfig.whatsappWebNumber)
+        }
         setTelegramToken(botConfig.telegramBotToken || '')
         setTelegramConnected(botConfig.telegramConnected || false)
         setBusinessPrefix(botConfig.invoicePrefix || 'B001-')
@@ -146,6 +169,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       try {
         const paymentRes = await businessApi.getPaymentSettings(selectedBusiness.id)
         setWebhookUrl(paymentRes.data.webhookUrl || '')
+        if (paymentRes.data.whatsappNumber) {
+          setWaPhoneNumber((current) => current || paymentRes.data.whatsappNumber)
+        }
       } catch (e) {
         console.error('Error fetching payment settings:', e)
       }
@@ -189,17 +215,27 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const handleConnectWhatsApp = async () => {
     if (!selectedBusiness) return
     try {
+      const phoneNumber = waPhoneNumber.trim().replace(/[^\d+]/g, '')
+      if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
+        toast({
+          title: 'Numero requerido',
+          description: 'Ingresa el numero en formato internacional, por ejemplo +51987654321.',
+          variant: 'destructive',
+        })
+        return
+      }
+      setWaPhoneNumber(phoneNumber)
       setWaInitializing(true)
-      await whatsappApi.initWeb(selectedBusiness.id)
+      await whatsappApi.initWeb(selectedBusiness.id, phoneNumber)
       await refreshQr()
       toast({
         title: 'Código QR Generado',
         description: 'Escanea el código QR con tu WhatsApp.',
       })
-    } catch (e) {
+    } catch (e: any) {
       toast({
         title: 'Error',
-        description: 'No se pudo iniciar WhatsApp Web',
+        description: e.response?.data?.message || 'No se pudo iniciar WhatsApp Web',
         variant: 'destructive',
       })
     } finally {
@@ -861,7 +897,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                             <p className="text-xs text-slate-400">
                               Inicializa el cliente Baileys y escanea el código QR desde tu celular para activar las respuestas automáticas.
                             </p>
-                            
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                Numero de WhatsApp
+                              </label>
+                              <input
+                                value={waPhoneNumber}
+                                onChange={(event) => setWaPhoneNumber(event.target.value)}
+                                placeholder="+51987654321"
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-primary transition-colors"
+                              />
+                            </div>
+
                             {waQrData && (
                               <div className="flex flex-col items-center justify-center p-4 bg-white rounded-xl border border-slate-700 w-48 h-48 mx-auto">
                                 {waQrData.startsWith('data:') || waQrData.length > 500 ? (
