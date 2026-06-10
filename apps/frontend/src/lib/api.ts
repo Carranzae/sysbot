@@ -351,8 +351,16 @@ export const livechatApi = {
     api.get(`/livechat/chats/${encodeURIComponent(phone)}/avatar`, { params: { businessId } }),
   
   // Mensajería
-  sendMessage: (to: string, message: string, mediaUrl?: string, businessId?: string) => 
-    api.post('/livechat/send', { to, message, mediaUrl, businessId }),
+  sendMessage: (
+    to: string,
+    message: string,
+    mediaUrl?: string,
+    businessId?: string,
+    mediaFileId?: string,
+    mediaType?: 'image' | 'video' | 'document' | 'audio' | 'sticker',
+    caption?: string,
+  ) => 
+    api.post('/livechat/send', { to, message, mediaUrl, businessId, mediaFileId, mediaType, caption }),
   deleteMessage: (messageId: string, businessId?: string) =>
     api.delete(`/livechat/messages/${messageId}`, { params: { businessId } }),
   clearChat: (phone: string, businessId?: string) =>

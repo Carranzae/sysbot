@@ -18,12 +18,28 @@ export class InstagramService {
     private swarmService: SwarmOrchestratorService,
   ) {}
 
+  private attachmentType(attachment: any): 'image' | 'video' | 'audio' | 'document' {
+    const type = String(attachment?.type || '').toLowerCase();
+    if (type === 'image') return 'image';
+    if (type === 'video') return 'video';
+    if (type === 'audio') return 'audio';
+    return 'document';
+  }
+
+  private graphAttachmentType(mediaType: string): 'image' | 'video' | 'audio' | 'file' {
+    if (mediaType === 'image' || mediaType === 'sticker') return 'image';
+    if (mediaType === 'video') return 'video';
+    if (mediaType === 'audio') return 'audio';
+    return 'file';
+  }
+
   async handleIncomingMessage(businessId: string, event: any) {
     this.logger.log(`[Instagram] Handling incoming message for business ${businessId}`);
 
     const senderId = event.sender?.id;
     const message = event.message;
     const messageText = message?.text;
+    const attachment = message?.attachments?.[0];
 
     if (!messageText && !message?.attachments) {
       this.logger.warn('[Instagram] No text or attachments in message');
@@ -41,7 +57,13 @@ export class InstagramService {
         platform: 'INSTAGRAM',
         platformMessageId: message?.mid,
         platformSenderId: senderId,
-        mediaUrl: message?.attachments?.[0]?.payload?.url,
+        mediaUrl: attachment?.payload?.url,
+        metadata: attachment
+          ? {
+              mediaType: this.attachmentType(attachment),
+              attachmentType: attachment.type,
+            }
+          : undefined,
         status: 'DELIVERED',
       },
     });
@@ -151,6 +173,50 @@ export class InstagramService {
         },
       }
     );
+    return response.data;
+  }
+
+  async sendAttachmentToInstagram(
+    businessId: string,
+    recipientId: string,
+    mediaUrl: string,
+    mediaType: string,
+    caption?: string,
+  ) {
+    const connection = await this.metaService.getMetaConnection(businessId);
+
+    if (!connection || !connection.instagramEnabled || !connection.instagramAccessToken || !connection.instagramAccountId) {
+      throw new Error('Instagram is not configured or enabled for this business');
+    }
+
+    const attachmentType = this.graphAttachmentType(mediaType);
+    const response = await axios.post(
+      `https://graph.facebook.com/v19.0/${connection.instagramAccountId}/messages`,
+      {
+        recipient: { id: recipientId },
+        message: {
+          attachment: {
+            type: attachmentType,
+            payload: {
+              url: mediaUrl,
+            },
+          },
+        },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${connection.instagramAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (caption?.trim()) {
+      await this.sendMessageToInstagram(businessId, recipientId, caption.trim()).catch((error) => {
+        this.logger.warn(`[Instagram] Caption send failed after attachment: ${error.message}`);
+      });
+    }
+
     return response.data;
   }
 }

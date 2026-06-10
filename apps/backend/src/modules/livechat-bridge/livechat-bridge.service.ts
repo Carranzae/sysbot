@@ -34,53 +34,133 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.debug(`User ${userId} joined room`);
   }
 
+  private normalizePlatform(platform?: string | null): string {
+    return String(platform || 'WHATSAPP').toUpperCase();
+  }
+
+  private normalizeIdentity(value?: string | null, platform?: string | null): string {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const normalizedPlatform = this.normalizePlatform(platform);
+    if (normalizedPlatform === 'MESSENGER' || normalizedPlatform === 'INSTAGRAM') {
+      return raw;
+    }
+
+    const withoutJid = raw.split('@')[0];
+    const digits = withoutJid.replace(/\D/g, '');
+    return digits || raw;
+  }
+
+  private conversationKey(value?: string | null, platform?: string | null): string {
+    const normalizedPlatform = this.normalizePlatform(platform);
+    const identity = this.normalizeIdentity(value, normalizedPlatform);
+    if (!identity) return '';
+
+    if (normalizedPlatform === 'WHATSAPP' && /^\d+$/.test(identity) && identity.length >= 9) {
+      return `${normalizedPlatform}:${identity.slice(-9)}`;
+    }
+
+    return `${normalizedPlatform}:${identity}`;
+  }
+
+  private publicMediaUrl(file?: { filename?: string | null; url?: string | null } | null): string | undefined {
+    if (!file) return undefined;
+    if (file.url?.startsWith('http')) return file.url;
+    if (file.filename) return `/uploads/${file.filename}`;
+    return file.url || undefined;
+  }
+
+  private absolutePublicUrl(url?: string | null): string | undefined {
+    if (!url) return undefined;
+    if (/^https?:\/\//i.test(url)) return url;
+
+    const baseUrl = (process.env.BACKEND_PUBLIC_URL || process.env.PUBLIC_API_URL || '').replace(/\/$/, '');
+    if (!baseUrl) return undefined;
+    return `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+  }
+
+  private inferMediaType(file?: { mimeType?: string | null } | null): 'image' | 'video' | 'document' | 'audio' {
+    const mimeType = file?.mimeType || '';
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    return 'document';
+  }
+
+  private messagePreview(message: any): string {
+    const mediaType = (message?.metadata as any)?.mediaType;
+    return message?.content || (mediaType ? `[${String(mediaType).toUpperCase()}]` : '');
+  }
+
   // ============== NATIVE METHODS ==============
 
   async getChats(token: string, businessId?: string) {
     try {
       if (!businessId) return [];
 
-      const contacts = await this.prisma.contact.findMany({
-        where: { businessId },
-        select: {
-          id: true,
-          phone: true,
-          name: true,
-          source: true,
-          metadata: true,
-          updatedAt: true,
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
-
-      const chats = await Promise.all(
-        contacts.map(async (contact) => {
-          const lastMessage = await this.prisma.message.findFirst({
-            where: {
-              businessId,
-              OR: [
-                { from: contact.phone },
-                { to: contact.phone },
-              ],
-            },
-            orderBy: { createdAt: 'desc' },
-          });
-
-          return {
-            customer_phone: contact.phone,
-            customer_name: contact.name || undefined,
-            customer_pushname: (contact.metadata as any)?.pushname || undefined,
-            last_message: lastMessage?.content || '',
-            last_message_at: lastMessage?.createdAt?.toISOString() || contact.updatedAt.toISOString(),
-            last_direction: lastMessage?.direction === 'INBOUND' ? 'incoming' : 'outgoing',
-            last_media_type: (lastMessage?.metadata as any)?.mediaType || undefined,
-            platform: (contact.source || 'WHATSAPP').toLowerCase(),
-          };
+      const [contacts, messages] = await Promise.all([
+        this.prisma.contact.findMany({
+          where: { businessId },
+          select: {
+            id: true,
+            phone: true,
+            name: true,
+            source: true,
+            metadata: true,
+            updatedAt: true,
+          },
+          orderBy: { updatedAt: 'desc' },
         }),
-      );
+        this.prisma.message.findMany({
+          where: { businessId },
+          orderBy: { createdAt: 'desc' },
+          take: 1000,
+        }),
+      ]);
 
-      // Sort chats by last message date desc
-      return chats.sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+      const chatMap = new Map<string, any>();
+
+      for (const contact of contacts) {
+        const platform = this.normalizePlatform(contact.source as any);
+        const key = this.conversationKey(contact.phone, platform);
+        if (!key) continue;
+
+        chatMap.set(key, {
+          customer_phone: this.normalizeIdentity(contact.phone, platform),
+          customer_name: contact.name || undefined,
+          customer_pushname: (contact.metadata as any)?.pushname || undefined,
+          last_message: (contact.metadata as any)?.lastMessagePreview || '',
+          last_message_at: contact.updatedAt.toISOString(),
+          last_direction: 'incoming',
+          last_media_type: undefined,
+          platform: platform.toLowerCase(),
+        });
+      }
+
+      for (const message of messages) {
+        const platform = this.normalizePlatform(message.platform || 'WHATSAPP');
+        const customerIdentity = message.direction === 'INBOUND' ? message.from : message.to;
+        const key = this.conversationKey(customerIdentity, platform);
+        if (!key) continue;
+
+        const existing = chatMap.get(key);
+        const messageDate = message.createdAt.toISOString();
+        const shouldReplaceLast = !existing || new Date(messageDate).getTime() >= new Date(existing.last_message_at).getTime();
+
+        chatMap.set(key, {
+          customer_phone: existing?.customer_phone || this.normalizeIdentity(customerIdentity, platform),
+          customer_name: existing?.customer_name,
+          customer_pushname: existing?.customer_pushname,
+          last_message: shouldReplaceLast ? this.messagePreview(message) : existing.last_message,
+          last_message_at: shouldReplaceLast ? messageDate : existing.last_message_at,
+          last_direction: shouldReplaceLast ? (message.direction === 'INBOUND' ? 'incoming' : 'outgoing') : existing.last_direction,
+          last_media_type: shouldReplaceLast ? (message.metadata as any)?.mediaType || undefined : existing.last_media_type,
+          platform: platform.toLowerCase(),
+        });
+      }
+
+      return Array.from(chatMap.values()).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
     } catch (error: any) {
       this.logger.error(`Error getting chats: ${error.message}`);
       return [];
@@ -91,17 +171,26 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     try {
       if (!businessId) return [];
 
-      const normalizedPhone = phone.split('@')[0].replace(/\D/g, '');
+      const normalizedPhone = this.normalizeIdentity(phone, 'WHATSAPP');
+      const tail = normalizedPhone.replace(/\D/g, '').slice(-9);
+      const messageWhere: any[] = [
+        { from: phone },
+        { to: phone },
+        { platformSenderId: phone },
+      ];
+
+      if (normalizedPhone && normalizedPhone !== phone) {
+        messageWhere.push({ from: normalizedPhone }, { to: normalizedPhone }, { platformSenderId: normalizedPhone });
+      }
+
+      if (tail.length >= 7) {
+        messageWhere.push({ from: { endsWith: tail } }, { to: { endsWith: tail } });
+      }
 
       const messages = await this.prisma.message.findMany({
         where: {
           businessId,
-          OR: [
-            { from: normalizedPhone },
-            { to: normalizedPhone },
-            { from: phone },
-            { to: phone },
-          ],
+          OR: messageWhere,
         },
         orderBy: { createdAt: 'asc' },
       });
@@ -115,6 +204,8 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
         status: m.status.toLowerCase(),
         mediaUrl: m.mediaUrl || undefined,
         mediaType: (m.metadata as any)?.mediaType || undefined,
+        fileName: (m.metadata as any)?.fileName || undefined,
+        mimeType: (m.metadata as any)?.mimetype || undefined,
         platform: m.platform ? m.platform.toLowerCase() : 'whatsapp',
       }));
     } catch (error: any) {
@@ -123,100 +214,162 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async sendMessage(to: string, message: string, token: string, mediaUrl?: string, businessId?: string) {
+  async sendMessage(
+    to: string,
+    message: string,
+    token: string,
+    mediaUrl?: string,
+    businessId?: string,
+    mediaFileId?: string,
+    mediaType?: 'image' | 'video' | 'document' | 'audio' | 'sticker',
+    caption?: string,
+  ) {
     try {
       if (!businessId) {
         throw new Error('Business ID is required');
       }
 
-      const normalizedPhone = to.split('@')[0].replace(/\D/g, '');
+      const normalizedPhone = this.normalizeIdentity(to, 'WHATSAPP');
+      const tail = normalizedPhone.slice(-9);
       const contact = await this.prisma.contact.findFirst({
         where: {
           businessId,
           OR: [
             { phone: to },
             { phone: normalizedPhone },
-            { phone: { endsWith: normalizedPhone.slice(-9) } },
+            ...(tail.length >= 7 ? [{ phone: { endsWith: tail } }] : []),
           ],
         },
       });
 
-      const platform = contact?.source || 'WHATSAPP';
+      const platform = this.normalizePlatform(contact?.source || 'WHATSAPP');
+      const file = mediaFileId
+        ? await this.prisma.file.findFirst({ where: { id: mediaFileId, businessId } })
+        : null;
+      if (mediaFileId && !file) {
+        throw new Error('Attached file was not found for this business');
+      }
+
+      const resolvedMediaType = mediaType || this.inferMediaType(file);
+      const storedMediaUrl = mediaUrl || this.publicMediaUrl(file);
+      const outboundText = (message || caption || '').trim();
+      const content = outboundText || (file ? `[${resolvedMediaType.toUpperCase()}]` : '');
+      const metadata = file
+        ? {
+            mediaType: resolvedMediaType,
+            fileId: file.id,
+            fileName: file.originalName,
+            mimetype: file.mimeType,
+            fileSize: file.size,
+          }
+        : undefined;
       let savedMessage;
 
       if (platform === 'TELEGRAM') {
+        if (file) {
+          throw new Error('Telegram media sending from the inbox is not implemented yet');
+        }
         const config = await this.prisma.botConfig.findUnique({ where: { businessId } });
         if (!config?.telegramBotToken || !config.telegramConnected) {
           throw new Error('Telegram is not configured or connected for this business');
         }
-        await this.telegramService.sendMessage(businessId, to, message);
-
-        savedMessage = await this.prisma.message.create({
-          data: {
+        await this.telegramService.sendMessage(businessId, to, content);
+        savedMessage = await this.prisma.message.findFirst({
+          where: {
             businessId,
             direction: 'OUTBOUND',
-            content: message,
-            from: '',
-            to: to,
-            status: 'SENT',
+            to,
             platform: 'TELEGRAM',
-            mediaUrl: mediaUrl || undefined,
           },
+          orderBy: { createdAt: 'desc' },
         });
       } else if (platform === 'MESSENGER') {
-        await this.messengerService.sendMessageToMessenger(businessId, to, message);
+        if (file) {
+          const absoluteUrl = this.absolutePublicUrl(storedMediaUrl);
+          if (!absoluteUrl) {
+            throw new Error('BACKEND_PUBLIC_URL is required to send Messenger attachments');
+          }
+          await this.messengerService.sendAttachmentToMessenger(businessId, to, absoluteUrl, resolvedMediaType, outboundText);
+        } else {
+          await this.messengerService.sendMessageToMessenger(businessId, to, content);
+        }
 
         savedMessage = await this.prisma.message.create({
           data: {
             businessId,
             direction: 'OUTBOUND',
-            content: message,
+            content,
             from: '',
             to: to,
             status: 'SENT',
             platform: 'MESSENGER',
-            mediaUrl: mediaUrl || undefined,
+            mediaUrl: storedMediaUrl || undefined,
+            metadata: metadata as any,
           },
         });
       } else if (platform === 'INSTAGRAM') {
-        await this.instagramService.sendMessageToInstagram(businessId, to, message);
+        if (file) {
+          const absoluteUrl = this.absolutePublicUrl(storedMediaUrl);
+          if (!absoluteUrl) {
+            throw new Error('BACKEND_PUBLIC_URL is required to send Instagram attachments');
+          }
+          await this.instagramService.sendAttachmentToInstagram(businessId, to, absoluteUrl, resolvedMediaType, outboundText);
+        } else {
+          await this.instagramService.sendMessageToInstagram(businessId, to, content);
+        }
 
         savedMessage = await this.prisma.message.create({
           data: {
             businessId,
             direction: 'OUTBOUND',
-            content: message,
+            content,
             from: '',
             to: to,
             status: 'SENT',
             platform: 'INSTAGRAM',
-            mediaUrl: mediaUrl || undefined,
+            mediaUrl: storedMediaUrl || undefined,
+            metadata: metadata as any,
           },
         });
       } else {
         const jid = this.toWhatsAppJid(to);
-        await this.whatsappWebService.sendMessage(businessId, jid, message);
+        if (file) {
+          if (resolvedMediaType === 'image' || resolvedMediaType === 'sticker') {
+            await this.whatsappWebService.sendImageFromFile(businessId, jid, file.id, undefined, outboundText);
+          } else if (resolvedMediaType === 'video') {
+            await this.whatsappWebService.sendVideoFromFile(businessId, jid, file.id, undefined, outboundText);
+          } else if (resolvedMediaType === 'audio') {
+            await this.whatsappWebService.sendAudioFromFile(businessId, jid, file.id, undefined, false);
+          } else {
+            await this.whatsappWebService.sendDocumentFromFile(businessId, jid, file.id, undefined, outboundText);
+          }
+        } else {
+          await this.whatsappWebService.sendMessage(businessId, jid, content);
+        }
 
         savedMessage = await this.prisma.message.create({
           data: {
             businessId,
             direction: 'OUTBOUND',
-            content: message,
+            content,
             from: '',
             to: normalizedPhone,
             status: 'SENT',
             platform: 'WHATSAPP',
-            mediaUrl: mediaUrl || undefined,
+            mediaUrl: storedMediaUrl || undefined,
+            metadata: metadata as any,
           },
         });
 
-        await this.upsertWhatsappContactActivity(businessId, normalizedPhone, message, 'OUTBOUND');
+        await this.upsertWhatsappContactActivity(businessId, normalizedPhone, content, 'OUTBOUND');
       }
 
       // Emit new message via WebSocket Gateway
-      this.websocketGateway.emitNewMessage(businessId, savedMessage);
+      if (savedMessage) {
+        this.websocketGateway.emitNewMessage(businessId, savedMessage);
+      }
 
-      return { success: true, messageId: savedMessage.id };
+      return { success: true, messageId: savedMessage?.id };
     } catch (error: any) {
       this.logger.error(`Error sending message: ${error.message}`);
       throw error;

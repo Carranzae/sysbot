@@ -30,18 +30,58 @@ export class MetaService {
   }
 
   async createOrUpdateMetaConnection(businessId: string, data: any) {
+    const normalized = { ...data };
+
+    if (
+      data.messengerConnected !== undefined ||
+      data.messengerEnabled !== undefined ||
+      data.messengerPageId !== undefined ||
+      data.messengerAccessToken !== undefined
+    ) {
+      normalized.messengerConnected = data.messengerConnected ?? Boolean(data.messengerEnabled && data.messengerPageId && data.messengerAccessToken);
+    }
+
+    if (
+      data.instagramConnected !== undefined ||
+      data.instagramEnabled !== undefined ||
+      data.instagramAccountId !== undefined ||
+      data.instagramAccessToken !== undefined
+    ) {
+      normalized.instagramConnected = data.instagramConnected ?? Boolean(data.instagramEnabled && data.instagramAccountId && data.instagramAccessToken);
+    }
+
     return this.prisma.metaPlatformConnection.upsert({
       where: { businessId },
       create: {
         businessId,
-        ...data,
+        ...normalized,
       },
-      update: data,
+      update: normalized,
     });
   }
+
+  async isValidVerifyToken(token?: string) {
+    if (!token) {
+      return false;
+    }
+
+    if (token === process.env.META_VERIFY_TOKEN) {
+      return true;
+    }
+
+    const connection = await this.prisma.metaPlatformConnection.findFirst({
+      where: {
+        OR: [
+          { messengerVerifyToken: token },
+          { webhookVerified: true, messengerVerifyToken: token },
+        ],
+      },
+      select: { id: true },
+    });
+
+    return Boolean(connection);
+  }
 }
-
-
 
 
 

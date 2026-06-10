@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useBusinessStore } from '@/store/business'
-import { contactsApi, livechatApi, whatsappApi } from '@/lib/api'
+import { contactsApi, filesApi, livechatApi, whatsappApi } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { io, Socket } from 'socket.io-client'
 import { 
@@ -29,7 +29,9 @@ interface Message {
   created_at: string
   status: string
   mediaUrl?: string
-  mediaType?: 'image' | 'video' | 'document' | 'audio'
+  mediaType?: 'image' | 'video' | 'document' | 'audio' | 'sticker'
+  fileName?: string
+  mimeType?: string
   platform?: string
 }
 
@@ -40,7 +42,7 @@ interface Chat {
   last_message: string
   last_message_at: string
   last_direction: 'incoming' | 'outgoing'
-  last_media_type?: 'image' | 'video' | 'document' | 'audio'
+  last_media_type?: 'image' | 'video' | 'document' | 'audio' | 'sticker'
   platform?: string
 }
 
@@ -64,6 +66,46 @@ const sameConversationPhone = (left?: string | null, right?: string | null) => {
   const tailA = a.slice(-9)
   const tailB = b.slice(-9)
   return tailA.length >= 7 && tailA === tailB
+}
+
+const getApiOrigin = () => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
+  return apiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '')
+}
+
+const resolveMediaUrl = (url?: string | null) => {
+  if (!url) return undefined
+  if (/^https?:\/\//i.test(url) || url.startsWith('blob:') || url.startsWith('data:')) return url
+  return `${getApiOrigin()}${url.startsWith('/') ? url : `/${url}`}`
+}
+
+const inferMediaTypeFromFile = (file: File): Message['mediaType'] => {
+  if (file.type.startsWith('image/webp') && file.name.toLowerCase().endsWith('.webp')) return 'sticker'
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  if (file.type.startsWith('audio/')) return 'audio'
+  return 'document'
+}
+
+const dedupeChats = (items: Chat[]) => {
+  const map = new Map<string, Chat>()
+  items.forEach((chat) => {
+    const platform = (chat.platform || 'whatsapp').toLowerCase()
+    const phoneKey = platform === 'whatsapp'
+      ? normalizePhoneKey(chat.customer_phone).slice(-9)
+      : String(chat.customer_phone || '').trim()
+    const key = `${platform}:${phoneKey}`
+    const existing = map.get(key)
+    if (!existing || new Date(chat.last_message_at).getTime() >= new Date(existing.last_message_at).getTime()) {
+      map.set(key, {
+        ...existing,
+        ...chat,
+        customer_name: chat.customer_name || existing?.customer_name,
+        customer_pushname: chat.customer_pushname || existing?.customer_pushname,
+      })
+    }
+  })
+  return Array.from(map.values()).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime())
 }
 
 export default function MessagesPage() {
@@ -150,10 +192,11 @@ export default function MessagesPage() {
       const res = await livechatApi.getChats(selectedBusiness.id)
       const chatList = (res as any).data?.chats || res.data || [];
       if (Array.isArray(chatList)) {
-        setChats(chatList)
+        const normalizedChats = dedupeChats(chatList)
+        setChats(normalizedChats)
         if (chatList.length > 0) {
           try {
-            const phones = chatList.map((c: any) => c.customer_phone)
+            const phones = normalizedChats.map((c: any) => c.customer_phone)
             const pauseRes = await livechatApi.getPauseStatuses(phones, selectedBusiness.id)
             const pauseData = pauseRes.data?.data || pauseRes.data?.statuses || pauseRes.data
             if (pauseData) setPauseMap(pauseData)
@@ -218,7 +261,10 @@ export default function MessagesPage() {
       const res = await livechatApi.getChatMessages(phone, selectedBusiness?.id)
       const data = (res as any).data || res;
       const list = data.messages || data || []
-      setMessages(list)
+      setMessages(list.map((msg: Message) => ({
+        ...msg,
+        mediaUrl: resolveMediaUrl(msg.mediaUrl),
+      })))
     } catch (e) {
       toast({
         title: 'Error',
@@ -348,7 +394,7 @@ export default function MessagesPage() {
         setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'sent', id: res.messageId || res.data?.messageId || m.id } : m))
       }
     } catch (e) {
-      setMessages(prev => prev.filter(m => m.id !== tempId))
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m))
       toast({
         title: 'Error',
         description: 'No se pudo enviar el mensaje.',
@@ -359,10 +405,10 @@ export default function MessagesPage() {
     }
   }
 
-  // Subir archivos y convertirlos a Base64
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Subir archivos y enviarlos por el canal activo
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !selectedChat) return
+    if (!file || !selectedChat || !selectedBusiness || sending) return
 
     if (file.size > 16 * 1024 * 1024) {
       toast({
@@ -373,6 +419,66 @@ export default function MessagesPage() {
       return
     }
 
+    const mediaType = inferMediaTypeFromFile(file)
+    const caption = messageInput.trim()
+    const tempId = `temp-file-${Date.now()}`
+    const localUrl = URL.createObjectURL(file)
+
+    const tempMsg: Message = {
+      id: tempId,
+      body: caption || `[${String(mediaType).toUpperCase()}]`,
+      direction: 'outgoing',
+      source: 'admin_api',
+      created_at: new Date().toISOString(),
+      status: 'pending',
+      mediaUrl: localUrl,
+      mediaType,
+      fileName: file.name,
+      mimeType: file.type,
+    }
+
+    setMessages(prev => [...prev, tempMsg])
+    setMessageInput('')
+    setSending(true)
+    setTimeout(scrollToBottom, 50)
+
+    try {
+      const uploadRes: any = await filesApi.upload(selectedBusiness.id, file, `Chat attachment to ${selectedChat}`, ['chat', mediaType || 'document'])
+      const uploaded = uploadRes.data || uploadRes
+      const publicUrl = uploaded?.filename ? resolveMediaUrl(`/uploads/${uploaded.filename}`) : resolveMediaUrl(uploaded?.url)
+      const sendRes: any = await livechatApi.sendMessage(
+        selectedChat,
+        caption,
+        undefined,
+        selectedBusiness.id,
+        uploaded.id,
+        mediaType,
+        caption,
+      )
+
+      if (sendRes.success || sendRes.data?.success) {
+        setMessages(prev => prev.map(m => m.id === tempId ? {
+          ...m,
+          id: sendRes.messageId || sendRes.data?.messageId || m.id,
+          status: 'sent',
+          mediaUrl: publicUrl || m.mediaUrl,
+        } : m))
+      }
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m))
+      toast({
+        title: 'Fallo',
+        description: 'Error al enviar el archivo.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSending(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+
+    return
+
+    /*
     const reader = new FileReader()
     reader.onload = async (ev) => {
       const base64 = ev.target?.result as string
@@ -405,6 +511,7 @@ export default function MessagesPage() {
       }
     }
     reader.readAsDataURL(file)
+    */
   }
 
   // Activar/Pausar el bot general
@@ -681,7 +788,6 @@ export default function MessagesPage() {
 
       setMessages(prev => {
         if (isSelected) {
-          if (prev.some(m => m.id === msg.id)) return prev
           const mappedMsg: Message = {
             id: msg.id,
             body: msg.content,
@@ -689,8 +795,16 @@ export default function MessagesPage() {
             source: msg.metadata?.source || 'whatsapp_web',
             created_at: msg.createdAt || new Date().toISOString(),
             status: msg.status || 'delivered',
-            mediaUrl: msg.mediaUrl,
-            mediaType: msg.metadata?.mediaType
+            mediaUrl: resolveMediaUrl(msg.mediaUrl),
+            mediaType: msg.metadata?.mediaType,
+            fileName: msg.metadata?.fileName,
+            mimeType: msg.metadata?.mimetype,
+          }
+          const existingIndex = prev.findIndex(m => m.id === msg.id)
+          if (existingIndex >= 0) {
+            const next = [...prev]
+            next[existingIndex] = { ...next[existingIndex], ...mappedMsg }
+            return next
           }
           setTimeout(scrollToBottom, 50)
           return [...prev, mappedMsg]
@@ -713,15 +827,16 @@ export default function MessagesPage() {
             last_media_type: msg.metadata?.mediaType
           }
           const item = updated.splice(index, 1)[0]
-          return [item, ...updated]
+          return dedupeChats([item, ...updated])
         } else {
-          return [{
+          return dedupeChats([{
             customer_phone: phone,
             last_message: msg.content,
             last_message_at: msg.createdAt || new Date().toISOString(),
             last_direction: msg.direction === 'INBOUND' ? 'incoming' : 'outgoing',
-            last_media_type: msg.metadata?.mediaType
-          }, ...prev]
+            last_media_type: msg.metadata?.mediaType,
+            platform: msg.platform ? String(msg.platform).toLowerCase() : 'whatsapp',
+          }, ...prev])
         }
       })
 
@@ -864,7 +979,7 @@ export default function MessagesPage() {
     })
   }, [chats, searchQuery, activeTab, selectedChannel, unreadMap, pauseMap])
 
-  const currentChat = chats.find(c => c.customer_phone === selectedChat)
+  const currentChat = chats.find(c => sameConversationPhone(c.customer_phone, selectedChat) || c.customer_phone === selectedChat)
 
   const renderMessageBody = (body: string, source?: string) => {
     const isAi = source === 'bot'
@@ -1324,7 +1439,9 @@ export default function MessagesPage() {
                           </div>
                         )
                       }
-                      
+
+                      const mediaSrc = resolveMediaUrl(msg.mediaUrl)
+                       
                       return (
                         <div 
                           key={msg.id || idx} 
@@ -1360,18 +1477,18 @@ export default function MessagesPage() {
                             )}
                             
                             {/* MULTIMEDIA RENDERER */}
-                            {msg.mediaUrl && (
+                            {mediaSrc && (
                               <div className="mb-2 overflow-hidden rounded-xl cursor-pointer hover:opacity-95 transition-opacity">
-                                {(msg.mediaType === 'image') && (
+                                {(msg.mediaType === 'image' || msg.mediaType === 'sticker') && (
                                   <img 
-                                    src={msg.mediaUrl} 
-                                    alt="Imagen adjunta" 
-                                    className="max-h-[250px] w-full object-cover rounded-xl border border-slate-200"
+                                    src={mediaSrc} 
+                                    alt={msg.mediaType === 'sticker' ? 'Sticker adjunto' : 'Imagen adjunta'} 
+                                    className={`max-h-[250px] w-full rounded-xl border border-slate-200 ${msg.mediaType === 'sticker' ? 'object-contain bg-white' : 'object-cover'}`}
                                   />
                                 )}
                                 {(msg.mediaType === 'video') && (
                                   <video 
-                                    src={msg.mediaUrl} 
+                                    src={mediaSrc} 
                                     controls 
                                     className="max-h-[250px] w-full rounded-xl border border-slate-200"
                                   />
@@ -1379,20 +1496,20 @@ export default function MessagesPage() {
                                 {(msg.mediaType === 'document') && (
                                   <div 
                                     className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-all cursor-pointer shadow-xs"
-                                    onClick={() => window.open(msg.mediaUrl, '_blank')}
+                                    onClick={() => window.open(mediaSrc, '_blank')}
                                   >
                                     <div className="w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center text-white font-extrabold shadow-sm shrink-0 text-xs">
                                       PDF
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-bold text-slate-700 truncate font-syst">Documento adjunto</p>
+                                      <p className="text-xs font-bold text-slate-700 truncate font-syst">{msg.fileName || 'Documento adjunto'}</p>
                                       <p className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">Ver Documento</p>
                                     </div>
                                   </div>
                                 )}
                                 {(msg.mediaType === 'audio') && (
                                   <div className="flex items-center gap-2 p-2 bg-slate-55 rounded-lg min-w-[200px] border border-slate-200">
-                                    <audio src={msg.mediaUrl} controls className="w-full h-8 opacity-90" />
+                                    <audio src={mediaSrc} controls className="w-full h-8 opacity-90" />
                                   </div>
                                 )}
                               </div>

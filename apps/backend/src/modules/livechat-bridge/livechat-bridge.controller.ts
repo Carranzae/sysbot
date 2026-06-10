@@ -49,8 +49,28 @@ export class LivechatBridgeController {
   }
 
   @Post('send')
-  async sendMessage(@Body() body: { to: string; message: string; mediaUrl?: string; businessId?: string }, @Req() req: any) {
-    return this.bridgeService.sendMessage(body.to, body.message, this.extractToken(req), body.mediaUrl, this.extractBusinessId(req));
+  async sendMessage(
+    @Body() body: {
+      to: string;
+      message?: string;
+      mediaUrl?: string;
+      mediaFileId?: string;
+      mediaType?: 'image' | 'video' | 'document' | 'audio' | 'sticker';
+      caption?: string;
+      businessId?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.bridgeService.sendMessage(
+      body.to,
+      body.message || body.caption || '',
+      this.extractToken(req),
+      body.mediaUrl,
+      this.extractBusinessId(req),
+      body.mediaFileId,
+      body.mediaType,
+      body.caption,
+    );
   }
 
   @Get('status')

@@ -50,8 +50,7 @@ export class MetaController {
   ) {
     // Verificación de webhook
     if (mode === 'subscribe' && token) {
-      const verifyToken = process.env.META_VERIFY_TOKEN;
-      if (token === verifyToken) {
+      if (await this.metaService.isValidVerifyToken(token)) {
         this.logger.log('[MetaWebhook] Webhook verified successfully');
         return res.status(200).send(challenge);
       }
@@ -134,7 +133,7 @@ export class MetaController {
     @Query('hub.challenge') challenge: string,
     @Res() res: Response,
   ) {
-    if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
+    if (mode === 'subscribe' && await this.metaService.isValidVerifyToken(token)) {
       return res.status(200).send(challenge);
     }
     return res.status(403).send('Forbidden');

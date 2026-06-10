@@ -88,6 +88,8 @@ export default function BusinessSettingsPage() {
     
     // Usar businessId de la URL o del negocio seleccionado
     const businessId = searchParams?.get('businessId') || selectedBusiness?.id
+    const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(/\/$/, '')
+    const whatsappWebhookUrl = `${apiBaseUrl}/whatsapp/webhook`
     
     // Loading states
     const [loading, setLoading] = useState(true)
@@ -178,6 +180,17 @@ export default function BusinessSettingsPage() {
         },
         respondInGroups: false
     })
+    const [showWhatsappApiConfig, setShowWhatsappApiConfig] = useState(false)
+    const [whatsappApiForm, setWhatsappApiForm] = useState({
+        connected: false,
+        phoneNumberId: '',
+        phoneNumber: '',
+        displayName: '',
+        accessToken: '',
+        whatsappBusinessId: '',
+        verifyToken: '',
+        webhookUrl: whatsappWebhookUrl,
+    })
 
     const [aiForm, setAiForm] = useState({
         aiProvider: 'GROQ',
@@ -214,6 +227,15 @@ export default function BusinessSettingsPage() {
                     webConnection: whatsappForm.webConnection, // Mantener estado de conexión
                     respondInGroups: botConfig.respondInGroups || false
                 })
+                setWhatsappApiForm(prev => ({
+                    ...prev,
+                    connected: Boolean(botConfig.whatsappApiEnabled && botConfig.whatsappPhoneNumberId),
+                    phoneNumberId: botConfig.whatsappPhoneNumberId || prev.phoneNumberId,
+                    accessToken: botConfig.whatsappApiKey || prev.accessToken,
+                    whatsappBusinessId: botConfig.whatsappBusinessId || prev.whatsappBusinessId,
+                    verifyToken: botConfig.whatsappWebhookSecret || prev.verifyToken,
+                    webhookUrl: prev.webhookUrl || whatsappWebhookUrl,
+                }))
 
                 // Cargar configuración de IA
                 setAiForm({
@@ -243,6 +265,11 @@ export default function BusinessSettingsPage() {
                     webConnection: whatsappForm.webConnection,
                     respondInGroups: false
                 })
+                setWhatsappApiForm(prev => ({
+                    ...prev,
+                    connected: false,
+                    webhookUrl: prev.webhookUrl || whatsappWebhookUrl,
+                }))
 
                 setAiForm({
                     aiProvider: 'GROQ',
@@ -462,6 +489,68 @@ export default function BusinessSettingsPage() {
             toast({
                 title: 'Error',
                 description: error.response?.data?.message || 'No se pudo guardar la configuración de WhatsApp',
+                variant: 'destructive',
+            })
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleSaveWhatsAppApi = async () => {
+        if (!businessId) return
+
+        const phoneNumberId = whatsappApiForm.phoneNumberId.trim()
+        const phoneNumber = whatsappApiForm.phoneNumber.trim().replace(/[^\d+]/g, '')
+        const accessToken = whatsappApiForm.accessToken.trim()
+        const verifyToken = whatsappApiForm.verifyToken.trim()
+
+        if (!phoneNumberId || !phoneNumber || !accessToken || !verifyToken) {
+            toast({
+                title: 'Faltan credenciales',
+                description: 'Completa Phone Number ID, numero, access token y verify token de WhatsApp Cloud API.',
+                variant: 'destructive',
+            })
+            return
+        }
+
+        if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
+            toast({
+                title: 'Numero invalido',
+                description: 'Usa formato internacional, por ejemplo +51987654321.',
+                variant: 'destructive',
+            })
+            return
+        }
+
+        try {
+            setSaving(true)
+            await whatsappApi.createAccount({
+                businessId,
+                phoneNumberId,
+                phoneNumber,
+                displayName: whatsappApiForm.displayName.trim() || phoneNumber,
+                accessToken,
+                verifyToken,
+                whatsappBusinessId: whatsappApiForm.whatsappBusinessId.trim(),
+                webhookUrl: whatsappApiForm.webhookUrl.trim() || whatsappWebhookUrl,
+            })
+
+            setWhatsappApiForm(prev => ({
+                ...prev,
+                connected: true,
+                phoneNumber,
+                webhookUrl: prev.webhookUrl || whatsappWebhookUrl,
+            }))
+            setShowWhatsappApiConfig(false)
+
+            toast({
+                title: 'WhatsApp API configurado',
+                description: 'La cuenta oficial quedo guardada y activada para este negocio.',
+            })
+        } catch (error: any) {
+            toast({
+                title: 'No se pudo configurar WhatsApp API',
+                description: error.response?.data?.message || error.message || 'Revisa las credenciales de Meta Cloud API.',
                 variant: 'destructive',
             })
         } finally {
@@ -1215,23 +1304,63 @@ export default function BusinessSettingsPage() {
                                                 <div className="p-2.5 bg-green-50 text-green-600 rounded-xl border border-green-100">
                                                     <MessageCircle className="w-5 h-5" />
                                                 </div>
-                                                <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                                {whatsappApiForm.connected ? (
+                                                    <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded">Conectado</Badge>
+                                                ) : (
+                                                    <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase px-2 py-0.5 rounded">Desconectado</Badge>
+                                                )}
                                             </div>
                                             <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 font-syst">WhatsApp Business API</h3>
                                             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-1">Conexión Oficial Cloud API</p>
-                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Conexión robusta para envíos ilimitados de plantillas interactivas aprobadas por Meta.</p>
+                                            <p className="text-xs text-slate-500 mt-3.5 leading-relaxed font-medium">Guarda las credenciales oficiales de Meta para recibir webhooks y enviar mensajes desde la API Cloud.</p>
                                         </div>
-                                        <Button 
-                                            onClick={() => {
-                                                toast({
-                                                    title: 'WhatsApp Business API',
-                                                    description: 'Esta función requiere verificación de Meta Business Manager en producción.',
-                                                })
-                                            }}
-                                            className="mt-6 w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs"
-                                        >
-                                            Configurar API
-                                        </Button>
+                                        <div className="space-y-3 mt-6">
+                                            {showWhatsappApiConfig && (
+                                                <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                                                    <div className="space-y-3">
+                                                        <div className="space-y-1.5">
+                                                            <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Phone Number ID</Label>
+                                                            <Input value={whatsappApiForm.phoneNumberId} onChange={(event) => setWhatsappApiForm(prev => ({ ...prev, phoneNumberId: event.target.value }))} placeholder="123456789012345" className="h-9 rounded-xl border-slate-200 text-xs font-semibold" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Numero conectado</Label>
+                                                            <Input value={whatsappApiForm.phoneNumber} onChange={(event) => setWhatsappApiForm(prev => ({ ...prev, phoneNumber: event.target.value }))} placeholder="+51987654321" className="h-9 rounded-xl border-slate-200 text-xs font-semibold" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Access token</Label>
+                                                            <Input type="password" value={whatsappApiForm.accessToken} onChange={(event) => setWhatsappApiForm(prev => ({ ...prev, accessToken: event.target.value }))} placeholder="EAA..." className="h-9 rounded-xl border-slate-200 text-xs font-semibold" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Verify token</Label>
+                                                            <Input value={whatsappApiForm.verifyToken} onChange={(event) => setWhatsappApiForm(prev => ({ ...prev, verifyToken: event.target.value }))} placeholder="token_webhook_whatsapp" className="h-9 rounded-xl border-slate-200 text-xs font-semibold" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Business ID</Label>
+                                                            <Input value={whatsappApiForm.whatsappBusinessId} onChange={(event) => setWhatsappApiForm(prev => ({ ...prev, whatsappBusinessId: event.target.value }))} placeholder="Meta Business ID" className="h-9 rounded-xl border-slate-200 text-xs font-semibold" />
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <Label className="text-[10px] font-black uppercase tracking-wider text-slate-500">Webhook URL</Label>
+                                                            <Input value={whatsappApiForm.webhookUrl} onChange={(event) => setWhatsappApiForm(prev => ({ ...prev, webhookUrl: event.target.value }))} className="h-9 rounded-xl border-slate-200 text-xs font-semibold" />
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                                                        Usa esta URL en Meta Developers: <span className="font-mono text-slate-700">{whatsappApiForm.webhookUrl || whatsappWebhookUrl}</span>
+                                                    </p>
+                                                </div>
+                                            )}
+                                            <Button
+                                                onClick={() => setShowWhatsappApiConfig(prev => !prev)}
+                                                variant={showWhatsappApiConfig ? 'outline' : 'default'}
+                                                className={`w-full font-extrabold text-xs h-10 rounded-xl shadow-2xs ${showWhatsappApiConfig ? 'border-slate-200 text-slate-650 bg-white hover:bg-slate-50' : 'bg-slate-900 hover:bg-slate-800 text-white'}`}
+                                            >
+                                                {showWhatsappApiConfig ? 'Ocultar configuración' : 'Configurar API'}
+                                            </Button>
+                                            {showWhatsappApiConfig && (
+                                                <Button onClick={handleSaveWhatsAppApi} disabled={saving} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs h-10 rounded-xl shadow-2xs">
+                                                    {saving ? 'Guardando...' : 'Guardar WhatsApp API'}
+                                                </Button>
+                                            )}
+                                        </div>
                                     </Card>
 
                                     {/* WhatsApp Web (QR session) */}
@@ -1438,7 +1567,7 @@ export default function BusinessSettingsPage() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3.5 text-xs text-slate-650 font-semibold font-mono flex-wrap">
-                                        <span>Canales Activos: <strong className="text-slate-800 font-extrabold">{[whatsappForm.webConnection.connected, telegramConnected].filter(Boolean).length} / 5</strong></span>
+                                        <span>Canales Activos: <strong className="text-slate-800 font-extrabold">{[whatsappApiForm.connected, whatsappForm.webConnection.connected, telegramConnected].filter(Boolean).length} / 5</strong></span>
                                         <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                                         <span>Tráfico en Vivo: <strong className="text-emerald-600 font-extrabold">12 m/min</strong></span>
                                     </div>

@@ -24,9 +24,11 @@ import { RateLimit } from '../../common/decorators/rate-limit.decorator';
 import { BusinessService } from '../business/business.service';
 import { Req } from '@nestjs/common';
 
+const getUploadPath = () => process.env.UPLOAD_PATH || path.join(process.cwd(), 'uploads');
+
 const storage = diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = './uploads';
+    const uploadPath = getUploadPath();
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
     }
@@ -219,7 +221,7 @@ export class FilesController {
 
   @Get('serve/:filename')
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    const filePath = path.join(process.cwd(), 'uploads', filename);
+    const filePath = path.join(getUploadPath(), filename);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ message: 'File not found' });
     }

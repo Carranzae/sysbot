@@ -41,9 +41,8 @@ export default function ChannelsPage() {
   const selectedBusiness = useBusinessStore((state) => state.selectedBusiness)
   const [loading, setLoading] = useState(false)
 
-  const webhookUrl = typeof window !== 'undefined'
-    ? `${window.location.origin.replace(':3000', ':3001')}/api/v1/webhooks/meta`
-    : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'}/webhooks/meta`
+  const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1').replace(/\/$/, '')
+  const webhookUrl = `${apiBaseUrl}/meta/webhook`
 
   const [metaConnection, setMetaConnection] = useState<MetaConnection | null>(null)
   const [whatsappWebStatus, setWhatsappWebStatus] = useState('')

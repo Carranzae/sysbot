@@ -540,7 +540,7 @@ INSTRUCCIONES:
   }
 
   private getAllowedFileTypes(industryType: string): string[] {
-    const baseTypes = ['DOCUMENT', 'IMAGE'];
+    const baseTypes = ['DOCUMENT', 'IMAGE', 'VIDEO', 'AUDIO', 'OTHER'];
 
     switch (industryType) {
       case 'RESTAURANT':

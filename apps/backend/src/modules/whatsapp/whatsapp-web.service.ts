@@ -13,7 +13,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { STTService } from '../audio/stt.service';
 import { TTSService } from '../audio/tts.service';
-import { rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { EvidenceType } from '@prisma/client';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
@@ -52,6 +52,77 @@ export class WhatsappWebService implements OnModuleInit {
 
   private getSessionsDir(): string {
     return process.env.WHATSAPP_AUTH_DIR || process.env.WHATSAPP_SESSIONS_DIR || join(process.cwd(), 'whatsapp_auth_sessions');
+  }
+
+  private getUploadsDir(): string {
+    return process.env.UPLOAD_PATH || join(process.cwd(), 'uploads');
+  }
+
+  private ensureUploadsDir(): string {
+    const uploadsDir = this.getUploadsDir();
+    if (!existsSync(uploadsDir)) {
+      mkdirSync(uploadsDir, { recursive: true });
+    }
+    return uploadsDir;
+  }
+
+  private getPublicUploadUrl(filename: string): string {
+    return `/uploads/${filename}`;
+  }
+
+  private getMediaDescriptor(message: any): {
+    mediaType: 'image' | 'video' | 'document' | 'audio' | 'sticker';
+    mediaInfo: any;
+    fileName: string;
+    mimeType: string;
+    caption: string;
+  } | null {
+    const image = message?.imageMessage;
+    const video = message?.videoMessage;
+    const document = message?.documentMessage;
+    const audio = message?.audioMessage || message?.pttMessage;
+    const sticker = message?.stickerMessage;
+
+    const mediaInfo = image || video || document || audio || sticker;
+    if (!mediaInfo) return null;
+
+    const mediaType = image
+      ? 'image'
+      : video
+        ? 'video'
+        : document
+          ? 'document'
+          : audio
+            ? 'audio'
+            : 'sticker';
+
+    const fallbackByType: Record<string, { name: string; mime: string }> = {
+      image: { name: 'image.jpg', mime: 'image/jpeg' },
+      video: { name: 'video.mp4', mime: 'video/mp4' },
+      document: { name: 'document.pdf', mime: 'application/pdf' },
+      audio: { name: 'audio.ogg', mime: 'audio/ogg' },
+      sticker: { name: 'sticker.webp', mime: 'image/webp' },
+    };
+
+    const fallback = fallbackByType[mediaType];
+    const rawFileName = mediaInfo.fileName || mediaInfo.title || fallback.name;
+    const fileName = String(rawFileName).split(/[\\/]/).pop()?.replace(/[<>:"|?*]/g, '_') || fallback.name;
+
+    return {
+      mediaType,
+      mediaInfo,
+      fileName,
+      mimeType: mediaInfo.mimetype || fallback.mime,
+      caption: mediaInfo.caption || '',
+    };
+  }
+
+  private getFileTypeForMedia(mediaType: string): 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'AUDIO' | 'OTHER' {
+    if (mediaType === 'image' || mediaType === 'sticker') return 'IMAGE';
+    if (mediaType === 'video') return 'VIDEO';
+    if (mediaType === 'document') return 'DOCUMENT';
+    if (mediaType === 'audio') return 'AUDIO';
+    return 'OTHER';
   }
 
   isClientReady(businessId: string): boolean {
@@ -1388,14 +1459,9 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     // Ejemplo: 152617669914787 -> 152617669914787 (ya está bien)
     // Ejemplo: 51974501998 -> 51974501998 (ya está bien)
     
-    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
-    const hasMediaMessage = Boolean(
-      msg.message?.imageMessage ||
-      msg.message?.videoMessage ||
-      msg.message?.documentMessage ||
-      msg.message?.audioMessage ||
-      msg.message?.pttMessage,
-    );
+    const mediaDescriptor = this.getMediaDescriptor(msg.message);
+    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || mediaDescriptor?.caption || '';
+    const hasMediaMessage = Boolean(mediaDescriptor);
 
     // Check if it's a group message and if the bot should respond
     const isGroup = fromJid.endsWith('@g.us');
@@ -1415,6 +1481,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     // AUDIO ENTRANTE: Transcribir mensajes de voz con Whisper
     // =====================================================================
     let audioTranscription: string | null = null;
+    let skipAiForMedia = false;
     const isAudioMessage = !!(msg.message?.audioMessage || msg.message?.pttMessage);
 
     if (isAudioMessage) {
@@ -1423,9 +1490,10 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
       if (!hasTranscription) {
         console.log(`[WhatsApp Web] Transcription feature NOT allowed for businessId: ${businessId}. Skipping.`);
         await this.sendMessage(businessId, fromJid, '🎙️ Tu plan actual no incluye la transcripción de audios. Por favor, contáctanos por texto.');
-        return;
+        skipAiForMedia = true;
       }
 
+      if (!skipAiForMedia) {
       try {
         console.log('[WhatsApp Web] Mensaje de audio detectado, transcribiendo...');
         const audioBuffer = await downloadMediaMessage(msg, 'buffer', {});
@@ -1439,12 +1507,13 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         } else {
           console.log('[WhatsApp Web] No se pudo transcribir el audio.');
           await this.sendMessage(businessId, fromJid, '🎙️ Recibí tu nota de voz, pero no pude entenderla claramente. ¿Podrías escribirme tu consulta?');
-          return;
+          skipAiForMedia = true;
         }
       } catch (err) {
         console.error('[WhatsApp Web] Error transcribiendo audio:', err);
         await this.sendMessage(businessId, fromJid, '🎙️ Recibí tu nota de voz, pero tuve un error al procesarla. Por favor escríbeme.');
-        return;
+        skipAiForMedia = true;
+      }
       }
     }
 
@@ -1476,7 +1545,8 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
 
     const isFromMe = msg.key.fromMe;
     const direction = isFromMe ? 'OUTBOUND' : 'INBOUND';
-    const persistedContent = effectiveText || text || (hasMediaMessage ? '[Media message]' : '');
+    const mediaPreview = mediaDescriptor ? `[${mediaDescriptor.mediaType.toUpperCase()}]` : '[Media message]';
+    const persistedContent = effectiveText || text || (hasMediaMessage ? mediaPreview : '');
 
     // Create message in DB (usar upsert para evitar duplicados)
     const savedMessage = await this.prisma.message.upsert({
@@ -1486,6 +1556,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
       update: {
         content: persistedContent,
         status: 'DELIVERED',
+        platform: 'WHATSAPP',
       },
       create: {
         businessId,
@@ -1495,6 +1566,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         from: isFromMe ? '' : from,
         to: isFromMe ? from : '',
         status: 'DELIVERED',
+        platform: 'WHATSAPP',
       },
     });
 
@@ -1506,15 +1578,16 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
       (msg as any).pushName,
     );
 
-    // Emitir mensaje por WebSocket al Frontend inmediatamente
-    try {
-      this.websocketGateway.emitNewMessage(businessId, savedMessage);
-    } catch (wsErr) {
-      console.error('[WhatsApp Web] Error emitting ws message:', wsErr);
+    if (!hasMediaMessage) {
+      try {
+        this.websocketGateway.emitNewMessage(businessId, savedMessage);
+      } catch (wsErr) {
+        console.error('[WhatsApp Web] Error emitting ws message:', wsErr);
+      }
     }
 
     // Si es un mensaje enviado por nosotros mismos (desde WebChat o Bot), no activar IA
-    if (isFromMe) {
+    if (isFromMe && !hasMediaMessage) {
       return;
     }
 
@@ -1613,32 +1686,27 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     }
 
     // Handle media (imágenes, videos, documentos)
-    if (msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.documentMessage) {
+    if (mediaDescriptor) {
       try {
         // Usar downloadMediaMessage de baileys para descargar el media
         const media = await downloadMediaMessage(msg, 'buffer', {});
-        const mediaType = msg.message?.imageMessage ? 'image' : msg.message?.videoMessage ? 'video' : 'document';
-        const mediaInfo = msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.documentMessage;
-        const fileName = mediaInfo?.fileName || (mediaType === 'image' ? 'image.jpg' : mediaType === 'video' ? 'video.mp4' : 'document.pdf');
-        const mimeType = mediaInfo?.mimetype || (mediaType === 'image' ? 'image/jpeg' : mediaType === 'video' ? 'video/mp4' : 'application/pdf');
+        const mediaBuffer = Buffer.isBuffer(media) ? media : Buffer.from(media as any);
+        const mediaType = mediaDescriptor.mediaType;
+        const fileName = mediaDescriptor.fileName;
+        const mimeType = mediaDescriptor.mimeType;
+        const messageContent = effectiveText || mediaDescriptor.caption || `[${mediaType.toUpperCase()}]`;
         
         // Guardar el archivo en la BD
-        const uploadsDir = join(process.cwd(), 'uploads');
-        if (!existsSync(uploadsDir)) {
-          require('fs').mkdirSync(uploadsDir, { recursive: true });
-        }
+        const uploadsDir = this.ensureUploadsDir();
         
-        const fileExtension = fileName.split('.').pop() || (mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : 'pdf');
+        const fileExtension = fileName.split('.').pop() || (mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'ogg' : mediaType === 'sticker' ? 'webp' : 'pdf');
         const uniqueFileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExtension}`;
         const filePath = join(uploadsDir, uniqueFileName);
+        const publicUrl = this.getPublicUploadUrl(uniqueFileName);
         
-        writeFileSync(filePath, media);
+        writeFileSync(filePath, mediaBuffer);
         
-        // Determinar tipo de archivo para Prisma
-        let fileType: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'AUDIO' | 'OTHER' = 'OTHER';
-        if (mediaType === 'image') fileType = 'IMAGE';
-        else if (mediaType === 'video') fileType = 'VIDEO';
-        else if (mediaType === 'document') fileType = 'DOCUMENT';
+        const fileType = this.getFileTypeForMedia(mediaType);
         
         // Crear registro de archivo en BD
         const file = await this.prisma.file.create({
@@ -1646,46 +1714,69 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
             filename: uniqueFileName,
             originalName: fileName,
             mimeType: mimeType,
-            size: media.length,
+            size: mediaBuffer.length,
             url: filePath,
             fileType: fileType,
             isProcessed: false,
             isActive: true,
             businessId: businessId,
-            description: text || `Archivo recibido de ${from}`,
+            description: messageContent || `Archivo recibido de ${from}`,
             tags: [],
           },
         });
         
         // Guardar el mensaje en la base de datos
-        await this.prisma.message.upsert({
+        const mediaMessage = await this.prisma.message.upsert({
           where: {
             externalId: msg.key.id,
           },
           update: {
-            content: text || `[${mediaType.toUpperCase()}]`,
+            content: messageContent,
             status: 'DELIVERED',
+            mediaUrl: publicUrl,
+            platform: 'WHATSAPP',
+            metadata: {
+              mediaType,
+              mimetype: mimeType,
+              fileName: fileName,
+              fileSize: mediaBuffer.length,
+              fileId: file.id,
+              isSticker: mediaType === 'sticker',
+            } as any,
           },
           create: {
             businessId,
             externalId: msg.key.id,
             direction: 'INBOUND',
-            content: text || `[${mediaType.toUpperCase()}]`,
+            content: messageContent,
             from,
             to: '',
             status: 'DELIVERED',
+            mediaUrl: publicUrl,
+            platform: 'WHATSAPP',
             metadata: {
               mediaType,
               mimetype: mimeType,
               fileName: fileName,
-              fileSize: media.length,
+              fileSize: mediaBuffer.length,
               fileId: file.id,
+              isSticker: mediaType === 'sticker',
             } as any,
           },
         });
 
         // Detectar si es evidencia médica (texto contiene palabras clave)
-        const lowerText = (text || '').toLowerCase();
+        try {
+          this.websocketGateway.emitNewMessage(businessId, mediaMessage);
+        } catch (wsErr) {
+          console.error('[WhatsApp Web] Error emitting media ws message:', wsErr);
+        }
+
+        if (isFromMe || skipAiForMedia) {
+          return;
+        }
+
+        const lowerText = (messageContent || '').toLowerCase();
         const isEvidence = lowerText.includes('malestar') || 
                           lowerText.includes('dolor') || 
                           lowerText.includes('síntoma') || 
@@ -1724,7 +1815,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
             customerName: contact?.name || undefined,
             evidenceType,
             fileId: file.id,
-            description: text || undefined,
+            description: messageContent || undefined,
           });
 
           // MEJORA: Enviar al especialista usando archivo desde BD
@@ -1764,7 +1855,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
                 // Fallback: usar media en memoria si el archivo no está disponible
                 console.warn(`[WhatsApp Web] ⚠️ Archivo no encontrado en BD, usando media en memoria`);
                 await sock.sendMessage(reviewerJid, {
-                  [mediaType]: media,
+                  [mediaType]: mediaBuffer,
                   caption: evidenceData.message,
                 });
               }
@@ -1862,9 +1953,9 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
           });
           const isClinic = business?.industryType === 'CLINIC';
 
-          if (isClinic && (isEvidence || text === '')) {
+          if (isClinic && (isEvidence || messageContent === `[${mediaType.toUpperCase()}]`)) {
             // Preguntar si es evidencia en el caso de clínica y si no hay descripción o si coincide con síntomas
-            this.pendingEvidence.set(from, { media, text, from });
+            this.pendingEvidence.set(from, { media: mediaBuffer, text: messageContent, from });
             
             if (msg.message?.imageMessage) {
               await this.sendMessage(businessId, fromJid, '📋 He recibido tu evidencia médica. ¿Quieres que la evalúe el especialista? (Sí/No)');
@@ -1887,12 +1978,12 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
             console.log(`[WhatsApp Web] Procesando archivo con IA directamente para negocio ${businessId}`);
             
             const fileAttachment = {
-              data: media,
+              data: mediaBuffer,
               mimeType: mimeType,
               filename: fileName
             };
 
-            const effectiveText = text || 'Analiza esta imagen o archivo y responde a ella.';
+            const effectiveText = messageContent || 'Analiza esta imagen o archivo y responde a ella.';
             
             const aiResponse = await this.aiService.generateResponse(businessId, effectiveText, from, {
               platform: 'WHATSAPP_WEB',
@@ -1938,6 +2029,11 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         }
       } catch (error) {
         console.error('Error downloading media:', error);
+        try {
+          this.websocketGateway.emitNewMessage(businessId, savedMessage);
+        } catch (wsErr) {
+          console.error('[WhatsApp Web] Error emitting fallback media ws message:', wsErr);
+        }
         await this.sendMessage(businessId, fromJid, 'Recibí tu archivo multimedia, pero hubo un error al procesarlo. Por favor, intenta nuevamente.');
       }
       return; // Don't send AI response for media

@@ -18,12 +18,28 @@ export class MessengerService {
     private swarmService: SwarmOrchestratorService,
   ) {}
 
+  private attachmentType(attachment: any): 'image' | 'video' | 'audio' | 'document' {
+    const type = String(attachment?.type || '').toLowerCase();
+    if (type === 'image') return 'image';
+    if (type === 'video') return 'video';
+    if (type === 'audio') return 'audio';
+    return 'document';
+  }
+
+  private graphAttachmentType(mediaType: string): 'image' | 'video' | 'audio' | 'file' {
+    if (mediaType === 'image' || mediaType === 'sticker') return 'image';
+    if (mediaType === 'video') return 'video';
+    if (mediaType === 'audio') return 'audio';
+    return 'file';
+  }
+
   async handleIncomingMessage(businessId: string, event: any) {
     this.logger.log(`[Messenger] Handling incoming message for business ${businessId}`);
 
     const senderId = event.sender?.id;
     const message = event.message;
     const messageText = message?.text;
+    const attachment = message?.attachments?.[0];
 
     if (!messageText && !message?.attachments) {
       this.logger.warn('[Messenger] No text or attachments in message');
@@ -41,7 +57,13 @@ export class MessengerService {
         platform: 'MESSENGER',
         platformMessageId: message?.mid,
         platformSenderId: senderId,
-        mediaUrl: message?.attachments?.[0]?.payload?.url,
+        mediaUrl: attachment?.payload?.url,
+        metadata: attachment
+          ? {
+              mediaType: this.attachmentType(attachment),
+              attachmentType: attachment.type,
+            }
+          : undefined,
         status: 'DELIVERED',
       },
     });
@@ -172,6 +194,52 @@ export class MessengerService {
         },
       }
     );
+    return response.data;
+  }
+
+  async sendAttachmentToMessenger(
+    businessId: string,
+    recipientId: string,
+    mediaUrl: string,
+    mediaType: string,
+    caption?: string,
+  ) {
+    const connection = await this.metaService.getMetaConnection(businessId);
+
+    if (!connection || !connection.messengerEnabled || !connection.messengerAccessToken || !connection.messengerPageId) {
+      throw new Error('Messenger is not configured or enabled for this business');
+    }
+
+    const attachmentType = this.graphAttachmentType(mediaType);
+    const response = await axios.post(
+      `https://graph.facebook.com/v19.0/${connection.messengerPageId}/messages`,
+      {
+        recipient: { id: recipientId },
+        message: {
+          attachment: {
+            type: attachmentType,
+            payload: {
+              url: mediaUrl,
+              is_reusable: true,
+            },
+          },
+        },
+        messaging_type: 'RESPONSE',
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${connection.messengerAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (caption?.trim()) {
+      await this.sendMessageToMessenger(businessId, recipientId, caption.trim()).catch((error) => {
+        this.logger.warn(`[Messenger] Caption send failed after attachment: ${error.message}`);
+      });
+    }
+
     return response.data;
   }
 

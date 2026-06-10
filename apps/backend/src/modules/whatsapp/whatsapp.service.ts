@@ -191,8 +191,14 @@ export class WhatsappService {
 
   async verifyWebhook(mode: string, token: string, challenge: string): Promise<string | null> {
     const verifyToken = this.configService.get('WHATSAPP_VERIFY_TOKEN');
+    const account = token
+      ? await this.prisma.whatsAppAccount.findFirst({
+          where: { verifyToken: token, isActive: true },
+          select: { id: true },
+        })
+      : null;
 
-    if (mode === 'subscribe' && token === verifyToken) {
+    if (mode === 'subscribe' && token && (token === verifyToken || account)) {
       return challenge;
     }
 
@@ -200,17 +206,59 @@ export class WhatsappService {
   }
 
   async createWhatsAppAccount(businessId: string, data: any) {
-    return this.prisma.whatsAppAccount.create({
-      data: {
+    const account = await this.prisma.whatsAppAccount.upsert({
+      where: { phoneNumberId: data.phoneNumberId },
+      create: {
         businessId,
-        phoneNumberId: data.phoneNumberId,
-        phoneNumber: data.phoneNumber,
-        displayName: data.displayName,
-        verifyToken: data.verifyToken,
-        accessToken: data.accessToken,
-        webhookUrl: data.webhookUrl,
+        phoneNumberId: String(data.phoneNumberId).trim(),
+        phoneNumber: String(data.phoneNumber).trim(),
+        displayName: data.displayName?.trim() || String(data.phoneNumber).trim(),
+        verifyToken: String(data.verifyToken).trim(),
+        accessToken: String(data.accessToken).trim(),
+        webhookUrl: data.webhookUrl?.trim() || null,
+        isActive: true,
+      },
+      update: {
+        businessId,
+        phoneNumber: String(data.phoneNumber).trim(),
+        displayName: data.displayName?.trim() || String(data.phoneNumber).trim(),
+        verifyToken: String(data.verifyToken).trim(),
+        accessToken: String(data.accessToken).trim(),
+        webhookUrl: data.webhookUrl?.trim() || null,
+        isActive: true,
       },
     });
+
+    await this.prisma.botConfig.upsert({
+      where: { businessId },
+      update: {
+        whatsappMode: 'WHATSAPP_API',
+        whatsappApiEnabled: true,
+        whatsappApiKey: String(data.accessToken).trim(),
+        whatsappBusinessId: data.whatsappBusinessId?.trim() || undefined,
+        whatsappPhoneNumberId: String(data.phoneNumberId).trim(),
+        whatsappWebhookSecret: String(data.verifyToken).trim(),
+        whatsappWebEnabled: false,
+      } as any,
+      create: {
+        businessId,
+        whatsappMode: 'WHATSAPP_API',
+        whatsappApiEnabled: true,
+        whatsappApiKey: String(data.accessToken).trim(),
+        whatsappBusinessId: data.whatsappBusinessId?.trim() || undefined,
+        whatsappPhoneNumberId: String(data.phoneNumberId).trim(),
+        whatsappWebhookSecret: String(data.verifyToken).trim(),
+        whatsappWebEnabled: false,
+        welcomeMessage: 'Hola! Bienvenido a nuestro negocio. En que podemos ayudarte?',
+        fallbackMessage: 'En este momento no estamos disponibles. Te responderemos pronto.',
+        autoReply: true,
+        audioEnabled: false,
+        aiProvider: 'OPENAI',
+        aiModel: 'gpt-4o',
+      } as any,
+    });
+
+    return account;
   }
 
   async updateWhatsappAccount(id: string, dto: UpdateWhatsappAccountDto) {

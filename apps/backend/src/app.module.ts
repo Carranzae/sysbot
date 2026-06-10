@@ -76,7 +76,7 @@ import { OmnichannelModule } from './modules/omnichannel/omnichannel.module';
       }),
     }),
     ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
+      rootPath: process.env.UPLOAD_PATH || join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',
     }),
     // GraphQLModule.forRoot<ApolloDriverConfig>({
