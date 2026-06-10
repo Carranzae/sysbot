@@ -1,10 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Res, Param, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, Res, Param, Req, NotFoundException, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { MetaOauthService } from './meta-oauth.service';
 import { GoogleOauthService } from './google-oauth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { BusinessService } from '../business/business.service';
+import { PrismaService } from '../database/prisma.service';
 
 @Controller('oauth')
 export class OauthController {
@@ -12,8 +12,33 @@ export class OauthController {
     private readonly metaOauth: MetaOauthService,
     private readonly googleOauth: GoogleOauthService,
     private readonly config: ConfigService,
-    private readonly businessService: BusinessService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private async ensureBusinessOwnership(ownerId: string | undefined, businessId: string) {
+    if (!ownerId) {
+      throw new NotFoundException(`Business with ID ${businessId} not found for this user`);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { role: true },
+    });
+
+    const business = user?.role === 'SUPER_ADMIN'
+      ? await this.prisma.business.findUnique({
+          where: { id: businessId },
+          select: { id: true },
+        })
+      : await this.prisma.business.findFirst({
+          where: { id: businessId, ownerId },
+          select: { id: true },
+        });
+
+    if (!business) {
+      throw new NotFoundException(`Business with ID ${businessId} not found for this user`);
+    }
+  }
 
   @Get('google/start')
   startGoogle(
@@ -52,7 +77,7 @@ export class OauthController {
       throw new BadRequestException('businessId is required');
     }
     try {
-      await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
+      await this.ensureBusinessOwnership(req.user?.userId, businessId);
       const url = this.metaOauth.buildMetaAuthUrl(businessId, platform);
       return res.redirect(url);
     } catch (error: any) {
@@ -74,7 +99,7 @@ export class OauthController {
     if (!businessId) {
       throw new BadRequestException('businessId is required');
     }
-    await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
+    await this.ensureBusinessOwnership(req.user?.userId, businessId);
     return {
       url: this.metaOauth.buildMetaAuthUrl(businessId, platform),
     };

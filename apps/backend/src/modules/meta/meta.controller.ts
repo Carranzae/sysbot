@@ -1,9 +1,9 @@
-import { Controller, Post, Get, Patch, Req, Res, Query, Body, Param, Logger, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Req, Res, Query, Body, Param, Logger, NotFoundException, UseGuards } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { MetaService } from './meta.service';
 import { MetaRouterService } from './meta-router.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { BusinessService } from '../business/business.service';
+import { PrismaService } from '../database/prisma.service';
 
 @Controller('meta')
 export class MetaController {
@@ -12,8 +12,33 @@ export class MetaController {
   constructor(
     private metaService: MetaService,
     private metaRouterService: MetaRouterService,
-    private businessService: BusinessService,
+    private prisma: PrismaService,
   ) {}
+
+  private async ensureBusinessOwnership(ownerId: string | undefined, businessId: string) {
+    if (!ownerId) {
+      throw new NotFoundException(`Business with ID ${businessId} not found for this user`);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { role: true },
+    });
+
+    const business = user?.role === 'SUPER_ADMIN'
+      ? await this.prisma.business.findUnique({
+          where: { id: businessId },
+          select: { id: true },
+        })
+      : await this.prisma.business.findFirst({
+          where: { id: businessId, ownerId },
+          select: { id: true },
+        });
+
+    if (!business) {
+      throw new NotFoundException(`Business with ID ${businessId} not found for this user`);
+    }
+  }
 
   @Post('webhook')
   async handleWebhook(
@@ -71,7 +96,7 @@ export class MetaController {
   @Get('connection/:businessId')
   @UseGuards(JwtAuthGuard)
   async getConnection(@Param('businessId') businessId: string, @Req() req: any) {
-    await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
+    await this.ensureBusinessOwnership(req.user?.userId, businessId);
     const connection = await this.metaService.getMetaConnection(businessId);
     return connection || {
       businessId,
@@ -98,7 +123,7 @@ export class MetaController {
       webhookUrl?: string;
     },
   ) {
-    await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
+    await this.ensureBusinessOwnership(req.user?.userId, businessId);
     return this.metaService.createOrUpdateMetaConnection(businessId, data);
   }
 
