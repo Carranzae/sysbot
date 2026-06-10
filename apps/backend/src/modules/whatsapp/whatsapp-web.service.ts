@@ -130,6 +130,19 @@ export class WhatsappWebService implements OnModuleInit {
     return Boolean(sock?.user);
   }
 
+  private async clearStoredPairingCode(businessId: string): Promise<void> {
+    this.pairingCodes.delete(businessId);
+    try {
+      await this.prisma.botConfig.upsert({
+        where: { businessId },
+        update: { whatsappWebQr: null } as any,
+        create: { businessId, whatsappWebQr: null } as any,
+      });
+    } catch (error) {
+      console.error('Error clearing stored QR code for businessId:', businessId, error);
+    }
+  }
+
   private normalizeWhatsappJid(to: string): string {
     const raw = String(to || '').trim();
     if (!raw) {
@@ -305,6 +318,25 @@ export class WhatsappWebService implements OnModuleInit {
       console.log('WhatsApp Web enabled automatically for businessId:', businessId);
     }
 
+    const readySocket = this.sockets.get(businessId);
+    if (readySocket?.user) {
+      const configuredDigits = String(config?.whatsappWebNumber || config?.business?.whatsappNumber || '').replace(/\D/g, '');
+      const readyDigits = String((readySocket.user as any)?.id || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+      const sameNumber = !configuredDigits || !readyDigits || configuredDigits === readyDigits || configuredDigits.endsWith(readyDigits) || readyDigits.endsWith(configuredDigits);
+      if (sameNumber) {
+        console.log('[WhatsApp Web] Existing ready socket found for businessId:', businessId, '- reusing current session');
+        if (this.reinitTimeouts && this.reinitTimeouts.has(businessId)) {
+          clearTimeout(this.reinitTimeouts.get(businessId));
+          this.reinitTimeouts.delete(businessId);
+        }
+        this.initializing.set(businessId, false);
+        await this.clearStoredPairingCode(businessId);
+        await this.updateStatus(businessId, 'READY');
+        return readySocket;
+      }
+      console.log('[WhatsApp Web] Ready socket number differs from configured number. Reinitializing session for businessId:', businessId);
+    }
+
     // Prevenir múltiples inicializaciones simultáneas
     if (this.initializing.get(businessId)) {
       console.log('⚠️ Initialization already in progress for businessId:', businessId, '- Skipping duplicate initialization');
@@ -326,7 +358,7 @@ export class WhatsappWebService implements OnModuleInit {
       if (this.sockets.has(businessId)) {
         const existingSock = this.sockets.get(businessId);
         try {
-          if (existingSock && !existingSock.user) {
+          if (existingSock) {
             console.log('Closing existing socket before reinitializing...');
             await existingSock.end(undefined);
           }
@@ -547,6 +579,7 @@ export class WhatsappWebService implements OnModuleInit {
           console.log('Connection conflict (440) - Another connection is active, closing this one...');
           this.sockets.delete(businessId);
           this.initializing.set(businessId, false); // Liberar el lock
+          await this.clearStoredPairingCode(businessId);
           this.updateStatus(businessId, 'READY'); // La otra conexión está activa
           return;
         }
@@ -614,7 +647,7 @@ export class WhatsappWebService implements OnModuleInit {
         this.updateStatus(businessId, 'READY');
         this.initializing.set(businessId, false); // Liberar el lock cuando la conexión está abierta
         // Limpiar el QR ya que la conexión está establecida
-        this.pairingCodes.delete(businessId);
+        await this.clearStoredPairingCode(businessId);
         // Asegurarse de que el socket esté en el mapa
         if (!this.sockets.has(businessId)) {
           console.log('Socket missing from map after connection open, re-adding...');
@@ -780,6 +813,12 @@ export class WhatsappWebService implements OnModuleInit {
   }
 
   async getPairingCode(businessId: string): Promise<string | null> {
+    if (this.isClientReady(businessId)) {
+      console.log('WhatsApp Web is already connected for businessId:', businessId, '- clearing stale QR');
+      await this.clearStoredPairingCode(businessId);
+      return null;
+    }
+
     // Buscar primero en memoria (más rápido y reciente)
     const memoryQr = this.pairingCodes.get(businessId);
     if (memoryQr) {
@@ -826,7 +865,7 @@ export class WhatsappWebService implements OnModuleInit {
     // Liberar el lock de inicialización
     this.initializing.set(businessId, false);
     // Limpiar QR y pairing codes
-    this.pairingCodes.delete(businessId);
+    await this.clearStoredPairingCode(businessId);
     // Actualizar estado en BD
     await this.updateStatus(businessId, 'DISABLED');
   }
@@ -1687,6 +1726,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
 
     // Handle media (imágenes, videos, documentos)
     if (mediaDescriptor) {
+      let continueWithTextAi = false;
       try {
         // Usar downloadMediaMessage de baileys para descargar el media
         const media = await downloadMediaMessage(msg, 'buffer', {});
@@ -2034,9 +2074,17 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         } catch (wsErr) {
           console.error('[WhatsApp Web] Error emitting fallback media ws message:', wsErr);
         }
-        await this.sendMessage(businessId, fromJid, 'Recibí tu archivo multimedia, pero hubo un error al procesarlo. Por favor, intenta nuevamente.');
+        continueWithTextAi = !isFromMe && !skipAiForMedia && Boolean(effectiveText?.trim());
+        if (continueWithTextAi) {
+          console.warn('[WhatsApp Web] Media download failed, but text/caption exists. Continuing with text AI response.');
+        } else if (!isFromMe && !skipAiForMedia) {
+          await this.sendMessage(businessId, fromJid, 'Recibí tu archivo multimedia, pero hubo un error al procesarlo. Por favor, intenta nuevamente.');
+        }
       }
-      return; // Don't send AI response for media
+      if (!continueWithTextAi) {
+        return; // Don't send AI response for media
+      }
+      console.log('[WhatsApp Web] Continuing normal AI flow after media download failure with usable text.');
     }
 
     // Verificar si la IA está pausada para este contacto

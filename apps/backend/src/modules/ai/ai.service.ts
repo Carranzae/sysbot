@@ -523,6 +523,92 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private normalizeIntentText(value: string): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private detectClinicalUrgency(message: string): { urgent: boolean; specialty: string; reason: string } {
+    const text = this.normalizeIntentText(message);
+    if (!text) {
+      return { urgent: false, specialty: 'Medicina General', reason: 'empty_message' };
+    }
+
+    const criticalPatterns = [
+      { pattern: /dolor (?:en el )?pecho|presion (?:en el )?pecho|dificultad para respirar|falta de aire|se me va el aire/, specialty: 'Emergencia / Cardiologia', reason: 'cardiorespiratory_red_flag' },
+      { pattern: /desmayo|convulsion|perdida de conocimiento|confusion repentina|no responde/, specialty: 'Emergencia / Neurologia', reason: 'neurological_red_flag' },
+      { pattern: /sangrado abundante|hemorragia|vomit[oa] sangre|sangre en heces|sangre en la orina/, specialty: 'Emergencia', reason: 'bleeding_red_flag' },
+      { pattern: /rigidez de cuello|peor dolor de cabeza|dolor de cabeza.*repentino|vision borrosa.*dolor de cabeza/, specialty: 'Emergencia / Neurologia', reason: 'severe_headache_red_flag' },
+      { pattern: /dolor abdominal fuerte|dolor de barriga fuerte|dolor de vientre fuerte|dolor estomacal fuerte|vomitos persistentes/, specialty: 'Emergencia / Gastroenterologia', reason: 'abdominal_red_flag' },
+    ];
+
+    const criticalMatch = criticalPatterns.find(({ pattern }) => pattern.test(text));
+    if (criticalMatch) {
+      return { urgent: true, specialty: criticalMatch.specialty, reason: criticalMatch.reason };
+    }
+
+    const hasEmergencyWord = /\b(emergencia|urgente|auxilio|ayuda inmediata)\b/.test(text);
+    const hasSevereQualifier = /\b(muy fuerte|demasiado fuerte|intenso|intensa|insoportable|no aguanto|no soporto|fuerte)\b/.test(text);
+    const hasHeadache = /dolor(?:es)? de cabeza|cefalea|migrana/.test(text);
+    const hasStomachPain = /dolor(?:es)? (?:estomacal|de estomago|abdominal|de barriga|de vientre)|estomago|abdominal|nausea|vomito/.test(text);
+    const hasPain = /\bdolor(?:es)?\b/.test(text);
+
+    if (hasEmergencyWord || (hasSevereQualifier && (hasHeadache || hasStomachPain || hasPain))) {
+      let specialty = 'Medicina General o Emergencia';
+      if (hasHeadache && hasStomachPain) {
+        specialty = 'Medicina General o Emergencia';
+      } else if (hasHeadache) {
+        specialty = 'Medicina General o Neurologia';
+      } else if (hasStomachPain) {
+        specialty = 'Medicina General o Gastroenterologia';
+      }
+
+      return {
+        urgent: true,
+        specialty,
+        reason: hasEmergencyWord ? 'explicit_urgent_request' : 'severe_pain_reported',
+      };
+    }
+
+    return { urgent: false, specialty: 'Medicina General', reason: 'no_red_flags' };
+  }
+
+  private buildClinicalUrgencyResponse(businessName: string, detection: { specialty: string; reason: string }): string {
+    return [
+      'Entiendo. Por lo que describes, es mejor atenderlo con prioridad y no manejarlo como una consulta normal por chat.',
+      'Si el dolor es muy fuerte, empeora, o aparece fiebre alta, vomitos persistentes, rigidez de cuello, desmayo, dificultad para respirar, dolor en el pecho, sangrado, confusion o embarazo, acude a emergencia o llama a emergencias ahora.',
+      `Desde ${businessName} puedo derivarte con ${detection.specialty} y avisar a un asesor para que lo revise cuanto antes.`,
+      'Para orientarte mientras te atienden: ¿desde cuando empezo el dolor y tienes fiebre, vomitos, mareos o algun medicamento tomado hoy?',
+    ].join('\n\n');
+  }
+
+  private async notifyClinicalEscalation(
+    businessId: string,
+    ownerId: string | null | undefined,
+    customerPhone: string | undefined,
+    message: string,
+    detection: { specialty: string; reason: string },
+  ): Promise<void> {
+    if (!ownerId) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.create(businessId, {
+        userId: ownerId,
+        type: 'SYSTEM',
+        title: 'Paciente urgente en chat',
+        message: `El cliente ${customerPhone || 'sin telefono'} reporta posible urgencia (${detection.reason}). Derivacion sugerida: ${detection.specialty}. Mensaje: ${message.slice(0, 220)}`,
+        metadata: { customerPhone, businessId, specialty: detection.specialty, reason: detection.reason },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[ClinicalUrgency] No se pudo crear notificacion: ${error.message}`);
+    }
+  }
+
   async generateResponse(
     businessId: string,
     customerMessage: string,
@@ -567,6 +653,22 @@ export class AiService implements OnModuleInit, OnModuleDestroy {
     const config = business.botConfig as typeof business.botConfig & { ragChannelTargets?: string[] };
     if (!config && !this.systemOpenAiKey) {
       throw new Error('AI configuration not found. Please configure AI provider in settings.');
+    }
+
+    if (business.industryType === 'CLINIC') {
+      const clinicalUrgency = this.detectClinicalUrgency(customerMessage);
+      if (clinicalUrgency.urgent) {
+        await this.notifyClinicalEscalation(businessId, business.ownerId, customerPhone, customerMessage, clinicalUrgency);
+        return {
+          message: this.buildClinicalUrgencyResponse(business.name, clinicalUrgency),
+          confidence: 0.98,
+          shouldEscalate: true,
+          suggestedActions: ['human_review', 'clinical_triage_priority'],
+          processingTime: Date.now() - startTime,
+          sentiment: 'NEGATIVE',
+          intent: 'URGENT',
+        };
+      }
     }
 
     // Obtener el proveedor de IA configurado
@@ -673,6 +775,14 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
     businessContext += `- Sé CONCISO pero COMPLETO. Responde de forma directa sin rodeos\n`;
     businessContext += `- Si tienes información específica en archivos, úsala inmediatamente\n`;
     businessContext += `- No hagas preguntas innecesarias. Si sabes la respuesta, dala directamente\n`;
+
+    businessContext += `\n\nATENCION HUMANA OMNICANAL (OBLIGATORIO):\n`;
+    businessContext += `- Responde como un asesor real del negocio, no como soporte tecnico del sistema.\n`;
+    businessContext += `- Usa el rubro, historial, contacto, pedidos, citas, archivos/RAG y canal actual antes de responder.\n`;
+    businessContext += `- Si el cliente esta molesto, preocupado, confundido o pide ayuda urgente, reconoce la situacion primero y ofrece el siguiente paso concreto.\n`;
+    businessContext += `- No conviertas consultas de texto en errores de multimedia. Si hay texto del cliente, atiende ese texto aunque un archivo adjunto haya fallado.\n`;
+    businessContext += `- Si no tienes datos suficientes, haz una sola pregunta puntual y util para avanzar.\n`;
+    businessContext += `- No inventes disponibilidad, precios, diagnosticos, politicas ni datos internos. Usa la informacion disponible o deriva a un asesor.\n`;
 
     // Agregar instrucciones sobre razonamiento contextual y uso inteligente de información
     businessContext += `\n\n🧠 CAPACIDAD DE RAZONAMIENTO Y CONTEXTO:\n`;

@@ -415,6 +415,24 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
       if (!businessId) throw new Error('Business ID is required');
 
       const phoneNumber = (phone || '').trim();
+      const requestedDigits = phoneNumber.replace(/\D/g, '');
+      const existingConfig = await this.prisma.botConfig.findUnique({
+        where: { businessId },
+        select: {
+          whatsappWebNumber: true,
+          business: {
+            select: {
+              whatsappNumber: true,
+            },
+          },
+        },
+      });
+      const activeDigits = (existingConfig?.whatsappWebNumber || existingConfig?.business?.whatsappNumber || '').replace(/\D/g, '');
+      const canReuseReadyClient = this.whatsappWebService.isClientReady(businessId) && (
+        !requestedDigits ||
+        (Boolean(activeDigits) && (requestedDigits === activeDigits || requestedDigits.endsWith(activeDigits) || activeDigits.endsWith(requestedDigits)))
+      );
+
       if (phoneNumber) {
         if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
           throw new Error('Invalid WhatsApp number format. Use international format: +51999999999');
@@ -445,6 +463,10 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
             aiModel: 'gpt-4o',
           },
         });
+      }
+
+      if (canReuseReadyClient) {
+        return { success: true, status: 'READY', connected: true };
       }
 
       // Initialize local WhatsApp client
