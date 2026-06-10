@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { businessApi } from '@/lib/api'
 
 interface BotConfig {
+  autoReply?: boolean
   ragChannelTargets?: string[]
 }
 

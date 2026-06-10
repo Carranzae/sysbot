@@ -279,9 +279,6 @@ export class BusinessService {
   }
 
   async ensureBusinessOwnership(ownerId: string, businessId: string) {
-    console.log('ensureBusinessOwnership - ownerId:', ownerId);
-    console.log('ensureBusinessOwnership - businessId:', businessId);
-    
     // Check if the user is SUPER_ADMIN to bypass ownership checks
     const user = await this.prisma.user.findUnique({
       where: { id: ownerId },
@@ -289,7 +286,6 @@ export class BusinessService {
     });
 
     if (user?.role === 'SUPER_ADMIN') {
-      console.log('🚀 ensureBusinessOwnership: Super Admin bypassed ownership check for business:', businessId);
       const business = await this.prisma.business.findUnique({
         where: { id: businessId }
       });
@@ -305,8 +301,6 @@ export class BusinessService {
         ownerId,
       },
     });
-
-    console.log('ensureBusinessOwnership - business found:', business);
 
     if (!business) {
       throw new NotFoundException(`Business with ID ${businessId} not found for this user`);
@@ -408,7 +402,9 @@ export class BusinessService {
               customPrompt: preset.promptTemplate.replace('{businessName}', businessName),
               autoReply: false,
               audioEnabled: false,
-              whatsappWebEnabled: true,
+              whatsappMode: 'WHATSAPP_WEB',
+              whatsappWebEnabled: false,
+              whatsappWebStatus: 'DISABLED',
               aiProvider: 'OPENAI',
               aiModel: 'gpt-4o',
               businessHours: {

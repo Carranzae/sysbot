@@ -1,8 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Res, Param } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, Res, Param, Req, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { MetaOauthService } from './meta-oauth.service';
 import { GoogleOauthService } from './google-oauth.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { BusinessService } from '../business/business.service';
 
 @Controller('oauth')
 export class OauthController {
@@ -10,6 +12,7 @@ export class OauthController {
     private readonly metaOauth: MetaOauthService,
     private readonly googleOauth: GoogleOauthService,
     private readonly config: ConfigService,
+    private readonly businessService: BusinessService,
   ) {}
 
   @Get('google/start')
@@ -38,15 +41,18 @@ export class OauthController {
   }
 
   @Get(':platform/start')
-  start(
+  @UseGuards(JwtAuthGuard)
+  async start(
     @Param('platform') platform: 'facebook' | 'instagram',
     @Query('businessId') businessId: string,
+    @Req() req: any,
     @Res() res: Response,
   ) {
     if (!businessId) {
       throw new BadRequestException('businessId is required');
     }
     try {
+      await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
       const url = this.metaOauth.buildMetaAuthUrl(businessId, platform);
       return res.redirect(url);
     } catch (error: any) {
@@ -59,13 +65,16 @@ export class OauthController {
   }
 
   @Get(':platform/start-url')
-  getStartUrl(
+  @UseGuards(JwtAuthGuard)
+  async getStartUrl(
     @Param('platform') platform: 'facebook' | 'instagram',
     @Query('businessId') businessId: string,
+    @Req() req: any,
   ) {
     if (!businessId) {
       throw new BadRequestException('businessId is required');
     }
+    await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
     return {
       url: this.metaOauth.buildMetaAuthUrl(businessId, platform),
     };

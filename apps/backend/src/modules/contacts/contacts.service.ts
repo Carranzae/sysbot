@@ -28,11 +28,36 @@ export class ContactsService {
 
   async create(businessId: string, whatsappAccountId: string | undefined, data: CreateContactDto) {
     const { tags, ...rest } = data;
+    const normalizedPhone = rest.phone?.replace(/\D/g, '') || rest.phone;
+    const tail = normalizedPhone?.slice(-9);
+    const existing = normalizedPhone
+      ? await this.prisma.contact.findFirst({
+          where: {
+            businessId,
+            OR: [
+              { phone: normalizedPhone },
+              { phone: rest.phone },
+              ...(tail ? [{ phone: { endsWith: tail } }] : []),
+            ],
+          },
+          select: { id: true },
+        })
+      : null;
+
+    if (existing) {
+      return this.update(existing.id, {
+        ...rest,
+        phone: normalizedPhone,
+        tags,
+      });
+    }
+
     return this.prisma.contact.create({
       data: {
         businessId,
         whatsappAccountId,
         ...rest,
+        phone: normalizedPhone,
         tags: tags
           ? {
               create: tags.map((tag) => ({

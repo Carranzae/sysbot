@@ -1,7 +1,9 @@
-import { Controller, Post, Get, Patch, Req, Res, Query, Body, Param, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Req, Res, Query, Body, Param, Logger, UseGuards } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { MetaService } from './meta.service';
 import { MetaRouterService } from './meta-router.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { BusinessService } from '../business/business.service';
 
 @Controller('meta')
 export class MetaController {
@@ -10,6 +12,7 @@ export class MetaController {
   constructor(
     private metaService: MetaService,
     private metaRouterService: MetaRouterService,
+    private businessService: BusinessService,
   ) {}
 
   @Post('webhook')
@@ -37,11 +40,14 @@ export class MetaController {
 
     if (body.object === 'page' || body.object === 'instagram') {
       for (const entry of body.entry || []) {
-        const platform = entry.id ? 'INSTAGRAM' : 'MESSENGER';
-        const businessId = await this.metaService.getBusinessIdFromPageId(entry.id || entry.messaging?.[0]?.recipient?.id);
+        const platform = body.object === 'instagram' ? 'INSTAGRAM' : 'MESSENGER';
+        const pageOrAccountId = body.object === 'instagram'
+          ? entry.id
+          : entry.messaging?.[0]?.recipient?.id || entry.id;
+        const businessId = await this.metaService.getBusinessIdFromPageId(pageOrAccountId);
 
         if (!businessId) {
-          this.logger.warn(`[MetaWebhook] Business not found for pageId: ${entry.id}`);
+          this.logger.warn(`[MetaWebhook] Business not found for page/account id: ${pageOrAccountId}`);
           continue;
         }
 
@@ -63,7 +69,9 @@ export class MetaController {
   }
 
   @Get('connection/:businessId')
-  async getConnection(@Param('businessId') businessId: string) {
+  @UseGuards(JwtAuthGuard)
+  async getConnection(@Param('businessId') businessId: string, @Req() req: any) {
+    await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
     const connection = await this.metaService.getMetaConnection(businessId);
     return connection || {
       businessId,
@@ -75,8 +83,10 @@ export class MetaController {
   }
 
   @Patch('connection/:businessId')
+  @UseGuards(JwtAuthGuard)
   async updateConnection(
     @Param('businessId') businessId: string,
+    @Req() req: any,
     @Body() data: {
       messengerEnabled?: boolean;
       messengerPageId?: string;
@@ -88,6 +98,7 @@ export class MetaController {
       webhookUrl?: string;
     },
   ) {
+    await this.businessService.ensureBusinessOwnership(req.user?.userId, businessId);
     return this.metaService.createOrUpdateMetaConnection(businessId, data);
   }
 
@@ -104,4 +115,3 @@ export class MetaController {
     return res.status(403).send('Forbidden');
   }
 }
-

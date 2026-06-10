@@ -9,6 +9,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { DatabaseModule } from '../database/database.module';
 import { WebsocketModule } from '../websocket/websocket.module';
 import { SwarmModule } from '../swarm/swarm.module';
+import { BusinessModule } from '../business/business.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { SwarmModule } from '../swarm/swarm.module';
     forwardRef(() => AiModule),
     forwardRef(() => WhatsappModule),
     SwarmModule,
+    BusinessModule,
   ],
   providers: [
     MetaService,
@@ -28,5 +30,4 @@ import { SwarmModule } from '../swarm/swarm.module';
   exports: [MetaService, MetaRouterService, MessengerService, InstagramService],
 })
 export class MetaModule {}
-
 

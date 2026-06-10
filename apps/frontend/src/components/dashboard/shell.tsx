@@ -391,6 +391,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const formattedIndustry = selectedBusiness?.industryType
     ? selectedBusiness.industryType.replace('_', ' ')
     : 'Sin rubro'
+  const botActive = Boolean(selectedBusiness?.botConfig?.autoReply)
 
   const quickActions = useMemo(() => {
     if (!selectedBusiness) return []
@@ -554,9 +555,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <Button variant="outline" size="sm" asChild className="border-slate-200 hover:border-primary/50 bg-white hover:bg-primary/5 text-slate-600 hover:text-primary transition-all duration-300 shadow-sm rounded-xl">
               <Link href="/businesses">Cambiar negocio</Link>
             </Button>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600 border border-emerald-200 shadow-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-              <span>Bot {selectedBusiness ? 'activo' : 'inactivo'}</span>
+            <span className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold border shadow-sm',
+              botActive
+                ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                : 'bg-slate-100 text-slate-500 border-slate-200'
+            )}>
+              <span className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                botActive ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'
+              )} />
+              <span>Bot {botActive ? 'activo' : 'inactivo'}</span>
             </span>
           </div>
         </div>

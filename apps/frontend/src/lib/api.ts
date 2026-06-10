@@ -92,7 +92,7 @@ export const contactsApi = {
     }),
   create: (
     businessId: string,
-    data: { name?: string; phone: string; email?: string; source?: string; tags?: string[] }
+    data: { name?: string; phone: string; email?: string; source?: string; autoCreated?: boolean; tags?: string[] }
   ) =>
     api.post(
       '/contacts',

@@ -37,7 +37,7 @@ export class MetaOauthService {
       this.config.get<string>('META_APP_ID') ||
       this.config.get<string>('FACEBOOK_APP_ID') ||
       this.config.get<string>('FB_APP_ID')
-    );
+    )?.trim();
   }
 
   private getMetaAppSecret() {
@@ -45,7 +45,7 @@ export class MetaOauthService {
       this.config.get<string>('META_APP_SECRET') ||
       this.config.get<string>('FACEBOOK_APP_SECRET') ||
       this.config.get<string>('FB_APP_SECRET')
-    );
+    )?.trim();
   }
 
   getRedirectUri() {
@@ -60,6 +60,9 @@ export class MetaOauthService {
     const appId = this.getMetaAppId();
     if (!appId) {
       throw new BadRequestException('Meta OAuth no esta configurado en Railway. Define META_APP_ID y META_APP_SECRET.');
+    }
+    if (!/^\d{5,}$/.test(appId)) {
+      throw new BadRequestException('META_APP_ID no parece valido. Debe ser el App ID numerico de Meta Developers, sin espacios ni texto extra.');
     }
 
     const redirectUri = this.getRedirectUri();
@@ -96,6 +99,9 @@ export class MetaOauthService {
     const appSecret = this.getMetaAppSecret();
     if (!appId || !appSecret) {
       throw new BadRequestException('Meta OAuth no esta configurado en Railway. Define META_APP_ID y META_APP_SECRET.');
+    }
+    if (!/^\d{5,}$/.test(appId)) {
+      throw new BadRequestException('META_APP_ID no parece valido. Debe ser el App ID numerico de Meta Developers, sin espacios ni texto extra.');
     }
 
     let state: MetaOAuthState;

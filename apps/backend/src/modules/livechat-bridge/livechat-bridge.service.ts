@@ -194,7 +194,7 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
           },
         });
       } else {
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+        const jid = this.toWhatsAppJid(to);
         await this.whatsappWebService.sendMessage(businessId, jid, message);
 
         savedMessage = await this.prisma.message.create({
@@ -209,6 +209,8 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
             mediaUrl: mediaUrl || undefined,
           },
         });
+
+        await this.upsertWhatsappContactActivity(businessId, normalizedPhone, message, 'OUTBOUND');
       }
 
       // Emit new message via WebSocket Gateway
@@ -240,10 +242,11 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
       });
 
       const statusString = config?.whatsappWebStatus || 'DISABLED';
-      const connected = statusString === 'READY';
+      const runtimeReady = this.whatsappWebService.isClientReady(businessId);
+      const connected = statusString === 'READY' && runtimeReady;
 
       return {
-        status: statusString,
+        status: statusString === 'READY' && !runtimeReady ? 'STALE' : statusString,
         connected,
         phoneNumber: config?.whatsappWebNumber || config?.business?.whatsappNumber || '',
         lastConnected: connected ? config?.updatedAt || null : null,
@@ -499,6 +502,69 @@ export class LivechatBridgeService implements OnModuleInit, OnModuleDestroy {
   async getAvatar(phone: string, token: string, businessId?: string) {
     // Return null since avatars are loaded via gravatar or placeholder in frontend natively
     return { success: true, avatarUrl: null };
+  }
+
+  private toWhatsAppJid(to: string): string {
+    const raw = String(to || '').trim();
+    if (raw.endsWith('@c.us')) {
+      return `${raw.replace('@c.us', '').replace(/\D/g, '')}@s.whatsapp.net`;
+    }
+    if (raw.includes('@')) {
+      return raw;
+    }
+    return `${raw.replace(/\D/g, '')}@s.whatsapp.net`;
+  }
+
+  private async upsertWhatsappContactActivity(
+    businessId: string,
+    phone: string,
+    preview: string,
+    direction: 'INBOUND' | 'OUTBOUND',
+  ) {
+    const normalizedPhone = String(phone || '').replace(/\D/g, '');
+    if (normalizedPhone.length < 7) return;
+
+    const tail = normalizedPhone.slice(-9);
+    const existing = await this.prisma.contact.findFirst({
+      where: {
+        businessId,
+        OR: [
+          { phone: normalizedPhone },
+          ...(tail ? [{ phone: { endsWith: tail } }] : []),
+        ],
+      },
+      select: { id: true, metadata: true },
+    });
+
+    const metadata = {
+      ...((existing?.metadata as any) || {}),
+      channel: 'WHATSAPP',
+      externalIdentity: normalizedPhone,
+      lastMessagePreview: preview.slice(0, 160),
+    };
+    const activityField = direction === 'INBOUND'
+      ? { lastIncomingAt: new Date() }
+      : { lastOutgoingAt: new Date() };
+
+    if (existing) {
+      await this.prisma.contact.update({
+        where: { id: existing.id },
+        data: { ...activityField, metadata } as any,
+      });
+      return;
+    }
+
+    await this.prisma.contact.create({
+      data: {
+        businessId,
+        phone: normalizedPhone,
+        name: `Contacto ${normalizedPhone}`,
+        source: 'WHATSAPP' as any,
+        autoCreated: true,
+        metadata,
+        ...activityField,
+      } as any,
+    });
   }
 
   // ============== SWARM METHODS ==============

@@ -903,23 +903,32 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
       // Normalizar el teléfono para búsqueda (remover cualquier sufijo)
       const normalizedPhone = customerPhone.split('@')[0].trim();
 
-      // Obtener mensajes recientes - solo de los últimos 10 minutos (timeout de conversación)
-      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+      const normalizedDigits = normalizedPhone.replace(/\D/g, '');
+      const phoneTail = normalizedDigits.slice(-9);
+
+      // Obtener mensajes recientes con una ventana suficiente para conversaciones reales.
+      const historySince = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const recentMessages = await this.prisma.message.findMany({
         where: {
           businessId,
           createdAt: {
-            gte: tenMinutesAgo, // Solo mensajes de los últimos 10 minutos
+            gte: historySince,
           },
           OR: [
             { from: normalizedPhone },
-            { from: { contains: normalizedPhone } }, // Buscar si contiene el número
+            { from: { contains: normalizedPhone } },
             { to: normalizedPhone },
             { to: { contains: normalizedPhone } },
+            ...(phoneTail
+              ? [
+                  { from: { endsWith: phoneTail } },
+                  { to: { endsWith: phoneTail } },
+                ]
+              : []),
           ],
         },
         orderBy: { createdAt: 'desc' },
-        take: 10, // Obtener más para luego limitar por tokens
+        take: 20,
       });
 
       this.logger.log(`Found ${recentMessages.length} recent messages for phone: ${normalizedPhone}`);
@@ -928,8 +937,7 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
         // Invertir para tener el orden cronológico correcto
         const messages = recentMessages.reverse();
 
-        // MEJORA: Limitar a últimos 5 mensajes para evitar error 413
-        const limitedMessages = messages.slice(-5);
+        const limitedMessages = messages.slice(-10);
         this.logger.log(`[History] Limiting to last ${limitedMessages.length} messages (from ${messages.length} total)`);
 
         // Crear formato de historial como string para incluir en el prompt

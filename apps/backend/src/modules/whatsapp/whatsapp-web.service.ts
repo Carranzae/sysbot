@@ -50,6 +50,93 @@ export class WhatsappWebService implements OnModuleInit {
     await this.restoreActiveSessions();
   }
 
+  private getSessionsDir(): string {
+    return process.env.WHATSAPP_AUTH_DIR || process.env.WHATSAPP_SESSIONS_DIR || join(process.cwd(), 'whatsapp_auth_sessions');
+  }
+
+  isClientReady(businessId: string): boolean {
+    const sock = this.sockets.get(businessId);
+    return Boolean(sock?.user);
+  }
+
+  private normalizeWhatsappJid(to: string): string {
+    const raw = String(to || '').trim();
+    if (!raw) {
+      return raw;
+    }
+
+    if (raw.endsWith('@c.us')) {
+      return `${raw.replace('@c.us', '').replace(/\D/g, '')}@s.whatsapp.net`;
+    }
+
+    if (raw.includes('@')) {
+      return raw;
+    }
+
+    return `${raw.replace(/\D/g, '')}@s.whatsapp.net`;
+  }
+
+  private async upsertConversationContact(
+    businessId: string,
+    phone: string,
+    direction: 'INBOUND' | 'OUTBOUND',
+    preview?: string,
+    pushName?: string,
+  ): Promise<void> {
+    const normalizedPhone = String(phone || '').split('@')[0].replace(/\D/g, '');
+    if (normalizedPhone.length < 7) {
+      return;
+    }
+
+    const tail = normalizedPhone.slice(-9);
+    const existing = await this.prisma.contact.findFirst({
+      where: {
+        businessId,
+        OR: [
+          { phone: normalizedPhone },
+          ...(tail ? [{ phone: { endsWith: tail } }] : []),
+        ],
+      },
+      select: { id: true, metadata: true, name: true },
+    });
+
+    const metadata = {
+      ...((existing?.metadata as any) || {}),
+      channel: 'WHATSAPP',
+      externalIdentity: normalizedPhone,
+      ...(preview ? { lastMessagePreview: preview.slice(0, 160) } : {}),
+      ...(pushName ? { pushname: pushName } : {}),
+    };
+
+    const activityField = direction === 'INBOUND'
+      ? { lastIncomingAt: new Date() }
+      : { lastOutgoingAt: new Date() };
+
+    if (existing) {
+      await this.prisma.contact.update({
+        where: { id: existing.id },
+        data: {
+          ...activityField,
+          metadata,
+          ...(pushName && !existing.name ? { name: pushName } : {}),
+        } as any,
+      });
+      return;
+    }
+
+    await this.prisma.contact.create({
+      data: {
+        businessId,
+        phone: normalizedPhone,
+        name: pushName || `Contacto ${normalizedPhone}`,
+        source: 'WHATSAPP' as any,
+        autoCreated: true,
+        metadata,
+        ...activityField,
+      } as any,
+    });
+  }
+
   private async restoreActiveSessions(): Promise<void> {
     try {
       const configs = await this.prisma.botConfig.findMany({
@@ -213,7 +300,7 @@ export class WhatsappWebService implements OnModuleInit {
       return null;
     }
 
-    const sessionsDir = join(process.cwd(), 'whatsapp_auth_sessions');
+    const sessionsDir = this.getSessionsDir();
     if (!existsSync(sessionsDir)) {
       const fs = require('fs');
       fs.mkdirSync(sessionsDir, { recursive: true });
@@ -890,7 +977,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
 
   private clearAuthFiles(businessId: string) {
     try {
-      const sessionsDir = join(process.cwd(), 'whatsapp_auth_sessions');
+      const sessionsDir = this.getSessionsDir();
       const authDir = join(sessionsDir, businessId);
       if (existsSync(authDir)) {
         console.log('Clearing auth files for businessId:', businessId);
@@ -916,11 +1003,11 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     }
 
     const sock = this.sockets.get(businessId);
-    if (!sock) {
-      throw new Error('Socket not found. WhatsApp Web may not be initialized');
+    if (!sock?.user) {
+      throw new Error('WhatsApp Web is not connected. Scan the QR code again or wait until the session is ready.');
     }
 
-    const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+    const jid = this.normalizeWhatsappJid(to);
     return sock.sendMessage(jid, { text: content }, options);
   }
 
@@ -1302,6 +1389,13 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     // Ejemplo: 51974501998 -> 51974501998 (ya está bien)
     
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+    const hasMediaMessage = Boolean(
+      msg.message?.imageMessage ||
+      msg.message?.videoMessage ||
+      msg.message?.documentMessage ||
+      msg.message?.audioMessage ||
+      msg.message?.pttMessage,
+    );
 
     // Check if it's a group message and if the bot should respond
     const isGroup = fromJid.endsWith('@g.us');
@@ -1360,7 +1454,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
     console.log(`[WhatsApp Web] Extracted text from message: "${effectiveText}"`);
     console.log(`[WhatsApp Web] Normalized phone: "${from}" from JID: "${fromJid}"`);
     
-    if (!effectiveText || effectiveText.trim() === '') {
+    if ((!effectiveText || effectiveText.trim() === '') && !hasMediaMessage) {
       console.log('[WhatsApp Web] Message has no text content, skipping AI response');
       // Si no hay texto ni audio, podría ser solo un emoji o sticker
       return;
@@ -1382,6 +1476,7 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
 
     const isFromMe = msg.key.fromMe;
     const direction = isFromMe ? 'OUTBOUND' : 'INBOUND';
+    const persistedContent = effectiveText || text || (hasMediaMessage ? '[Media message]' : '');
 
     // Create message in DB (usar upsert para evitar duplicados)
     const savedMessage = await this.prisma.message.upsert({
@@ -1389,19 +1484,27 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
         externalId: msg.key.id,
       },
       update: {
-        content: text,
+        content: persistedContent,
         status: 'DELIVERED',
       },
       create: {
         businessId,
         externalId: msg.key.id,
         direction,
-        content: text,
+        content: persistedContent,
         from: isFromMe ? '' : from,
         to: isFromMe ? from : '',
         status: 'DELIVERED',
       },
     });
+
+    await this.upsertConversationContact(
+      businessId,
+      from,
+      direction,
+      persistedContent,
+      (msg as any).pushName,
+    );
 
     // Emitir mensaje por WebSocket al Frontend inmediatamente
     try {
@@ -1810,6 +1913,27 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
             }
 
             await this.sendMessage(businessId, fromJid, finalMessage);
+            const outboundMessage = await this.prisma.message.create({
+              data: {
+                businessId,
+                direction: 'OUTBOUND',
+                content: finalMessage,
+                from: '',
+                to: from,
+                status: 'SENT',
+                aiResponse: true,
+                aiConfidence: aiResponse.confidence,
+                processingTime: aiResponse.processingTime,
+                metadata: aiResponse.mediaToSend ? { mediaSent: aiResponse.mediaToSend.length } : undefined,
+              } as any,
+            });
+
+            await this.upsertConversationContact(businessId, from, 'OUTBOUND', finalMessage);
+            try {
+              this.websocketGateway.emitNewMessage(businessId, outboundMessage);
+            } catch (wsErr) {
+              console.error('[WhatsApp Web] Error emitting media AI outbound ws message:', wsErr);
+            }
           }
         }
       } catch (error) {
@@ -2014,11 +2138,11 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
       }
 
       // Create outbound message
-      await this.prisma.message.create({
+      const outboundMessage = await this.prisma.message.create({
         data: {
           businessId,
           direction: 'OUTBOUND',
-          content: aiResponse.message,
+          content: finalMessage,
           from: '', // own number
           to: from, // Guardar sin @s.whatsapp.net en BD
           status: 'SENT',
@@ -2028,6 +2152,13 @@ Estamos aquí para atenderte. ¿En qué puedo asistirte hoy?`,
           metadata: aiResponse.mediaToSend ? { mediaSent: aiResponse.mediaToSend.length } : undefined,
         } as any,
       });
+
+      await this.upsertConversationContact(businessId, from, 'OUTBOUND', finalMessage);
+      try {
+        this.websocketGateway.emitNewMessage(businessId, outboundMessage);
+      } catch (wsErr) {
+        console.error('[WhatsApp Web] Error emitting AI outbound ws message:', wsErr);
+      }
     } catch (error: any) {
       console.error('Error generating AI response:', error);
       

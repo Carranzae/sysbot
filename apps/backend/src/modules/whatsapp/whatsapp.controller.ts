@@ -181,10 +181,11 @@ export class WhatsappController {
     });
 
     const statusString = config?.whatsappWebStatus || 'DISABLED';
-    const connected = statusString === 'READY';
+    const runtimeReady = this.whatsappWebService.isClientReady(targetBusinessId);
+    const connected = statusString === 'READY' && runtimeReady;
     
     return {
-      status: statusString,
+      status: statusString === 'READY' && !runtimeReady ? 'STALE' : statusString,
       connected,
       phoneNumber: config?.whatsappWebNumber || config?.business?.whatsappNumber || '',
       lastConnected: connected ? config?.updatedAt || null : null,

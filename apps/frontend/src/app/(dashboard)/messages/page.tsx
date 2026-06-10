@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useBusinessStore } from '@/store/business'
-import { livechatApi, whatsappApi } from '@/lib/api'
+import { contactsApi, livechatApi, whatsappApi } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { io, Socket } from 'socket.io-client'
 import { 
@@ -51,6 +51,19 @@ interface CustomerProfile {
     total_pending: number
   }
   lastOrders: any[]
+}
+
+const normalizePhoneKey = (value?: string | null) =>
+  String(value || '').split('@')[0].replace(/\D/g, '')
+
+const sameConversationPhone = (left?: string | null, right?: string | null) => {
+  const a = normalizePhoneKey(left)
+  const b = normalizePhoneKey(right)
+  if (!a || !b) return false
+  if (a === b) return true
+  const tailA = a.slice(-9)
+  const tailB = b.slice(-9)
+  return tailA.length >= 7 && tailA === tailB
 }
 
 export default function MessagesPage() {
@@ -507,9 +520,9 @@ export default function MessagesPage() {
   }
 
   // Iniciar nuevo chat
-  const handleStartNewChat = (e: React.FormEvent) => {
+  const handleStartNewChat = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newChatPhone.trim()) return
+    if (!newChatPhone.trim() || !selectedBusiness) return
     const formatted = newChatPhone.replace(/\D/g, '')
     if (formatted.length < 7) {
        toast({
@@ -523,10 +536,20 @@ export default function MessagesPage() {
     const exists = chats.find(c => c.customer_phone.includes(formatted))
     if (!exists) {
       const newChat: Chat = {
-        customer_phone: `${formatted}@c.us`,
+        customer_phone: formatted,
         last_message: '',
         last_message_at: new Date().toISOString(),
         last_direction: 'outgoing'
+      }
+      try {
+        await contactsApi.create(selectedBusiness.id, {
+          phone: formatted,
+          name: `Contacto ${formatted}`,
+          source: 'WHATSAPP',
+          autoCreated: true,
+        })
+      } catch (error) {
+        console.error('Error creating chat contact:', error)
       }
       setChats(prev => [newChat, ...prev])
       setSelectedChat(newChat.customer_phone)
@@ -636,18 +659,25 @@ export default function MessagesPage() {
     loadBotStatus()
     loadWhatsAppStatus()
 
-    const socketUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:3001'
-    const socket = io(socketUrl)
+    const socketUrl =
+      process.env.NEXT_PUBLIC_WS_URL ||
+      process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') ||
+      'http://localhost:3001'
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    const socket = io(socketUrl, {
+      auth: token ? { token } : undefined,
+      transports: ['websocket'],
+    })
     socketRef.current = socket
 
     socket.on('connect', () => {
-      socket.emit('joinUser', (selectedBusiness as any).userId || 'user-default')
+      socket.emit('joinBusiness', selectedBusiness.id)
     })
 
     // Recibir mensajes en tiempo real
     socket.on('livechatMessage', (msg: any) => {
       const isSelected = selectedChatRef.current && 
-        (selectedChatRef.current === msg.from || selectedChatRef.current === msg.to)
+        (sameConversationPhone(selectedChatRef.current, msg.from) || sameConversationPhone(selectedChatRef.current, msg.to))
 
       setMessages(prev => {
         if (isSelected) {
@@ -671,7 +701,7 @@ export default function MessagesPage() {
       // Actualizar chat en lista lateral
       setChats(prev => {
         const phone = msg.direction === 'INBOUND' ? msg.from : msg.to
-        const index = prev.findIndex(c => c.customer_phone === phone)
+        const index = prev.findIndex(c => sameConversationPhone(c.customer_phone, phone))
         const updated = [...prev]
 
         if (index !== -1) {
@@ -696,7 +726,7 @@ export default function MessagesPage() {
       })
 
       // Incrementar contador si no está en el chat activo
-      if (msg.direction === 'INBOUND' && (!selectedChatRef.current || selectedChatRef.current !== msg.from)) {
+      if (msg.direction === 'INBOUND' && (!selectedChatRef.current || !sameConversationPhone(selectedChatRef.current, msg.from))) {
         setUnreadMap(prev => ({
           ...prev,
           [msg.from]: (prev[msg.from] || 0) + 1
@@ -733,7 +763,7 @@ export default function MessagesPage() {
 
     // Escuchar ACK de lectura
     socket.on('livechatAck', (data: any) => {
-      const isSelected = selectedChatRef.current && selectedChatRef.current === data.customerPhone
+      const isSelected = selectedChatRef.current && sameConversationPhone(selectedChatRef.current, data.customerPhone)
       if (isSelected) {
         setMessages(prev => prev.map(m => 
           m.direction === 'outgoing' && m.status !== 'read' 
@@ -744,7 +774,7 @@ export default function MessagesPage() {
     })
 
     return () => {
-      socket.emit('leaveUser', (selectedBusiness as any).userId || 'user-default')
+      socket.emit('leaveBusiness', selectedBusiness.id)
       socket.disconnect()
     }
   }, [selectedBusiness, loadChats, loadBotStatus, loadWhatsAppStatus, toast])
