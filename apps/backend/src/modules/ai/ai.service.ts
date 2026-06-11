@@ -1587,8 +1587,13 @@ Si el paciente solicita una consulta médica o cita pero NO indica la especialid
       this.logger.log(`[AI Response] ✅ El AI GENERÓ el comando [CREATE_APPOINTMENT]`);
       this.logger.log(`[AI Response] Comando encontrado: ${appointmentMatches[0]}`);
     } else {
-      this.logger.warn(`[AI Response] ❌ El AI NO generó el comando [CREATE_APPOINTMENT]`);
-      this.logger.warn(`[AI Response] Respuesta completa: ${aiResponse}`);
+      const appointmentIntent = /(cita|agend|reserv|turno|horario|disponibilidad|especialidad|doctor|medico|m[eé]dico|consulta)/i.test(`${customerMessage}\n${conversationHistory}`);
+      if (appointmentIntent) {
+        this.logger.warn(`[AI Response] ❌ El AI NO generó el comando [CREATE_APPOINTMENT]`);
+        this.logger.warn(`[AI Response] Respuesta completa: ${aiResponse}`);
+      } else {
+        this.logger.debug('[AI Response] No appointment command expected for this turn.');
+      }
     }
 
     // Procesar solicitudes de citas antes de parsear archivos

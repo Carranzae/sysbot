@@ -388,11 +388,14 @@ export class BusinessService {
 
       const preset = INDUSTRY_PRESETS[createBusinessDto.industryType] || DEFAULT_INDUSTRY_PRESET;
       const businessName = createBusinessDto.name.trim();
+      const categories = Array.isArray(createBusinessDto.categories)
+        ? createBusinessDto.categories.map((category) => category?.trim()).filter(Boolean)
+        : [];
 
       const business = await this.prisma.business.create({
         data: {
           ...createBusinessDto,
-          categories: preset.defaultCategories,
+          categories: categories.length > 0 ? categories : preset.defaultCategories,
           ownerId,
           isActive: true,
           botConfig: {

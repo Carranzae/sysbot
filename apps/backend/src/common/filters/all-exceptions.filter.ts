@@ -18,15 +18,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const { httpAdapter } = this.httpAdapterHost;
     const ctx = host.switchToHttp();
 
+    const externalStatus = Number((exception as any)?.statusCode || (exception as any)?.status);
     const httpStatus =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : Number.isInteger(externalStatus) && externalStatus >= 400 && externalStatus < 600
+          ? externalStatus
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const message =
       exception instanceof HttpException
         ? exception.getResponse()
-        : 'Internal server error';
+        : (exception as any)?.message || 'Internal server error';
 
     const responseBody = {
       statusCode: httpStatus,

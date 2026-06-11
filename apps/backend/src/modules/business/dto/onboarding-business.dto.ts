@@ -49,6 +49,54 @@ export class OnboardingBusinessDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(20)
+  businessRUC?: string;
+
+  @IsOptional()
+  businessHours?: Record<string, any>;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  services?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  specialties?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  staff?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  paymentMethods?: string[];
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1000)
+  paymentQrNotes?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1500)
+  availabilityNotes?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1500)
+  catalogNotes?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1500)
+  policies?: string;
+
+  @IsString()
+  @IsOptional()
   @MaxLength(500)
   welcomeMessage?: string;
 
@@ -62,7 +110,6 @@ export class OnboardingBusinessDto {
   @MaxLength(2000)
   customPrompt?: string;
 }
-
 
 
 

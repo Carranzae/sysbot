@@ -43,7 +43,17 @@ export default function OnboardingPage() {
     phone: '',
     email: '',
     address: '',
+    website: '',
+    businessRUC: '',
     categories: [] as string[],
+    servicesText: '',
+    specialtiesText: '',
+    staffText: '',
+    paymentMethodsText: '',
+    paymentQrNotes: '',
+    availabilityNotes: '',
+    catalogNotes: '',
+    policies: '',
   })
   const [botConfigPreview, setBotConfigPreview] = useState({
     welcomeMessage: '',
@@ -150,6 +160,10 @@ export default function OnboardingPage() {
       const categories = filteredCategories.length > 0
         ? filteredCategories
         : selectedPreset?.defaultCategories || [selectedIndustry?.label || 'General']
+      const splitLines = (value: string) => value
+        .split(/\r?\n|,/)
+        .map(item => item.trim())
+        .filter(Boolean)
 
       const response = await businessApi.createOnboarding({
         name: formData.name,
@@ -158,7 +172,17 @@ export default function OnboardingPage() {
         phone: formData.phone || undefined,
         email: formData.email || undefined,
         address: formData.address || undefined,
+        website: formData.website || undefined,
+        businessRUC: formData.businessRUC || undefined,
         categories: categories,
+        services: splitLines(formData.servicesText),
+        specialties: splitLines(formData.specialtiesText),
+        staff: splitLines(formData.staffText),
+        paymentMethods: splitLines(formData.paymentMethodsText),
+        paymentQrNotes: formData.paymentQrNotes || undefined,
+        availabilityNotes: formData.availabilityNotes || undefined,
+        catalogNotes: formData.catalogNotes || undefined,
+        policies: formData.policies || undefined,
         welcomeMessage: botConfigPreview.welcomeMessage || undefined,
         fallbackMessage: botConfigPreview.fallbackMessage || undefined,
         customPrompt: botConfigPreview.customPrompt || undefined,
@@ -279,6 +303,26 @@ export default function OnboardingPage() {
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="businessRUC">RUC (Opcional)</Label>
+                  <Input
+                    id="businessRUC"
+                    placeholder="20123456789"
+                    value={formData.businessRUC}
+                    onChange={(e) => setFormData({ ...formData, businessRUC: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="website">Sitio web (Opcional)</Label>
+                  <Input
+                    id="website"
+                    placeholder="https://tuempresa.com"
+                    value={formData.website}
+                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -417,6 +461,85 @@ export default function OnboardingPage() {
 
                 <div className="space-y-3">
                   <div>
+                    <Label className="text-gray-500">
+                      {formData.industryType === 'CLINIC' ? 'Servicios y especialidades que atiendes' : 'Servicios, productos o soluciones'}
+                    </Label>
+                    <Textarea
+                      value={formData.servicesText}
+                      onChange={(e) => setFormData(prev => ({ ...prev, servicesText: e.target.value }))}
+                      rows={3}
+                      placeholder={formData.industryType === 'CLINIC' ? 'Medicina General, Pediatría, Cardiología...' : 'Producto o servicio 1, Producto o servicio 2...'}
+                    />
+                  </div>
+                  {formData.industryType === 'CLINIC' && (
+                    <>
+                      <div>
+                        <Label className="text-gray-500">Médicos, especialistas y disponibilidad</Label>
+                        <Textarea
+                          value={formData.staffText}
+                          onChange={(e) => setFormData(prev => ({ ...prev, staffText: e.target.value }))}
+                          rows={3}
+                          placeholder="Dra. Ana Ruiz - Pediatría - Lunes a viernes 9:00 a 13:00"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-gray-500">Especialidades para derivación</Label>
+                        <Textarea
+                          value={formData.specialtiesText}
+                          onChange={(e) => setFormData(prev => ({ ...prev, specialtiesText: e.target.value }))}
+                          rows={2}
+                          placeholder="Medicina General, Gastroenterología, Neurología..."
+                        />
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <Label className="text-gray-500">Horarios, disponibilidad y reglas de reserva</Label>
+                    <Textarea
+                      value={formData.availabilityNotes}
+                      onChange={(e) => setFormData(prev => ({ ...prev, availabilityNotes: e.target.value }))}
+                      rows={3}
+                      placeholder="Atendemos lunes a viernes 9:00 a 18:00. Sábado solo con cita. No confirmar fuera de horario sin asesor."
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-gray-500">Pagos y QR</Label>
+                    <Textarea
+                      value={formData.paymentMethodsText}
+                      onChange={(e) => setFormData(prev => ({ ...prev, paymentMethodsText: e.target.value }))}
+                      rows={2}
+                      placeholder="Yape, Plin, transferencia, efectivo"
+                    />
+                    <Textarea
+                      className="mt-2"
+                      value={formData.paymentQrNotes}
+                      onChange={(e) => setFormData(prev => ({ ...prev, paymentQrNotes: e.target.value }))}
+                      rows={2}
+                      placeholder="Indica si tienes QR subido en archivos o instrucciones para enviarlo al cliente."
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-gray-500">Catálogos, fotos o archivos que subirás</Label>
+                    <Textarea
+                      value={formData.catalogNotes}
+                      onChange={(e) => setFormData(prev => ({ ...prev, catalogNotes: e.target.value }))}
+                      rows={2}
+                      placeholder="Catálogo de productos, tarifario, fotos de servicios, menú, propiedades..."
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-gray-500">Políticas importantes</Label>
+                    <Textarea
+                      value={formData.policies}
+                      onChange={(e) => setFormData(prev => ({ ...prev, policies: e.target.value }))}
+                      rows={2}
+                      placeholder="Cambios, reembolsos, cancelaciones, garantías, tiempos de entrega..."
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
                     <Label className="text-gray-500">Mensaje de bienvenida</Label>
                     <Textarea
                       value={botConfigPreview.welcomeMessage}
@@ -484,4 +607,3 @@ export default function OnboardingPage() {
     </div>
   )
 }
-

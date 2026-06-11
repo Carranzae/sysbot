@@ -16,6 +16,56 @@ import { UserRole } from '@prisma/client';
 export class BusinessController {
   constructor(private readonly businessService: BusinessService) {}
 
+  private cleanList(values?: string[]): string[] {
+    return (values || [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+  }
+
+  private buildOperationalPrompt(dto: OnboardingBusinessDto, presetPrompt: string): string {
+    const sections: string[] = [presetPrompt];
+    const services = this.cleanList(dto.services);
+    const specialties = this.cleanList(dto.specialties);
+    const staff = this.cleanList(dto.staff);
+    const paymentMethods = this.cleanList(dto.paymentMethods);
+
+    sections.push('\nPERFIL OPERATIVO DEL NEGOCIO:');
+    sections.push('- Usa estos datos como fuente principal antes de responder.');
+    sections.push('- Si una consulta depende de disponibilidad, horarios, stock, precios, pagos o políticas y no hay datos suficientes, pregunta una sola cosa concreta o deriva a un asesor.');
+
+    if (dto.businessRUC?.trim()) sections.push(`- RUC: ${dto.businessRUC.trim()}`);
+    if (services.length) sections.push(`- Servicios/productos principales: ${services.join(', ')}`);
+    if (specialties.length) sections.push(`- Especialidades o líneas de atención: ${specialties.join(', ')}`);
+    if (staff.length) sections.push(`- Equipo disponible: ${staff.join(', ')}`);
+    if (paymentMethods.length) sections.push(`- Métodos de pago aceptados: ${paymentMethods.join(', ')}`);
+    if (dto.paymentQrNotes?.trim()) sections.push(`- QR/pagos: ${dto.paymentQrNotes.trim()}`);
+    if (dto.availabilityNotes?.trim()) sections.push(`- Disponibilidad y agenda: ${dto.availabilityNotes.trim()}`);
+    if (dto.catalogNotes?.trim()) sections.push(`- Catálogos, fotos o archivos: ${dto.catalogNotes.trim()}`);
+    if (dto.policies?.trim()) sections.push(`- Políticas del negocio: ${dto.policies.trim()}`);
+
+    if (dto.industryType === 'CLINIC') {
+      sections.push('\nREGLAS ESPECIALES PARA CLÍNICA:');
+      sections.push('- Usa especialidades, médicos, horarios y disponibilidad configurada para derivar citas.');
+      sections.push('- No inventes diagnósticos. Haz triaje básico, detecta urgencias y deriva a emergencia o asesor humano cuando corresponda.');
+      sections.push('- Si el paciente solicita cita y ya hay especialidad, fecha, hora, nombre y teléfono, genera el flujo de cita sin volver a pedir datos.');
+    } else if (dto.industryType === 'RETAIL' || dto.industryType === 'RESTAURANT') {
+      sections.push('\nREGLAS ESPECIALES PARA VENTAS:');
+      sections.push('- Usa catálogos, fotos, precios y stock subidos en archivos cuando existan.');
+      sections.push('- Si el cliente quiere comprar, confirma producto, cantidad, entrega y método de pago.');
+      sections.push('- Si hay QR de pago configurado o subido como archivo, ofrécelo cuando el cliente esté listo para pagar.');
+    } else if (dto.industryType === 'REAL_ESTATE') {
+      sections.push('\nREGLAS ESPECIALES PARA BIENES RAÍCES:');
+      sections.push('- Pregunta zona, presupuesto, tipo de inmueble y disponibilidad para visita.');
+      sections.push('- No inventes propiedades. Usa catálogos/archivos o deriva a asesor.');
+    } else if (dto.industryType === 'ACADEMY') {
+      sections.push('\nREGLAS ESPECIALES PARA EDUCACIÓN:');
+      sections.push('- Usa cursos, horarios, requisitos, vacantes y pagos configurados.');
+      sections.push('- Si el usuario quiere inscribirse, captura datos y deriva el pago o asesor.');
+    }
+
+    return sections.join('\n');
+  }
+
   @Post()
   create(@Req() req: any, @Body() createBusinessDto: CreateBusinessDto) {
     if (!req.user?.userId) {
@@ -39,6 +89,7 @@ export class BusinessController {
       .map((category) => category?.trim())
       .filter((category): category is string => Boolean(category));
 
+    const basePrompt = (onboardingDto.customPrompt || preset.promptTemplate).replace('{businessName}', onboardingDto.name.trim());
     const createBusinessDto: CreateBusinessDto = {
       name: onboardingDto.name,
       industryType: onboardingDto.industryType,
@@ -49,7 +100,20 @@ export class BusinessController {
       website: onboardingDto.website,
       categories: normalizedCategories.length > 0 ? normalizedCategories : preset.defaultCategories,
     };
-    return this.businessService.create(req.user.userId, createBusinessDto);
+
+    return this.businessService.create(req.user.userId, createBusinessDto)
+      .then(async (business) => {
+        await this.businessService.updateBotConfig(req.user.userId, business.id, {
+          welcomeMessage: onboardingDto.welcomeMessage || preset.welcomeTemplate.replace('{businessName}', onboardingDto.name.trim()),
+          fallbackMessage: onboardingDto.fallbackMessage || preset.fallbackTemplate.replace('{businessName}', onboardingDto.name.trim()),
+          customPrompt: this.buildOperationalPrompt(onboardingDto, basePrompt),
+          businessRUC: onboardingDto.businessRUC,
+          businessAddress: onboardingDto.address,
+          businessHours: onboardingDto.businessHours,
+          autoReply: false,
+        }, req.user?.role);
+        return this.businessService.findOne(business.id);
+      });
   }
 
   @Get('industry-presets')
